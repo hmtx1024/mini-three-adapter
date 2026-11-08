@@ -5,6 +5,14 @@
   "type": "module",
   "types": "./dist/index.d.ts",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hmtx1024/mini-three-adapter.git"
+  },
+  "homepage": "https://github.com/hmtx1024/mini-three-adapter#readme",
+  "bugs": {
+    "url": "https://github.com/hmtx1024/mini-three-adapter/issues"
+  },
   "keywords": [
     "three.js",
     "wechat",

@@ -98,13 +98,7 @@ npm run release:check  # npm pack --dry-run --json，看将要发布的文件清
 - `docs/04-api-reference.md` 与 `package.json exports` 一致；`docs/03-module-map.md` 与文件树一致。
 - `docs/11-compat-matrix.md` 已登记验证过的 three / 基础库版本。
 
-可选：在 `package.json` 补上 `repository` / `homepage` / `bugs`，npm 包页面会展示源码入口：
-
-```json
-"repository": { "type": "git", "url": "git+https://github.com/<you>/mini-three-adapter.git" },
-"homepage": "https://github.com/<you>/mini-three-adapter#readme",
-"bugs": { "url": "https://github.com/<you>/mini-three-adapter/issues" }
-```
+`package.json` 已配置 `repository` / `homepage` / `bugs`，npm 包页面会展示源码入口与 issue 链接。若仓库迁移，同步修改这三个字段后再发布。
 
 ### 9.5.2 准备 npm 账号
 
