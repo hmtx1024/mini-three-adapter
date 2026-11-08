@@ -30,7 +30,7 @@ cd examples/wechat-minigame && npm install && npm run build
 cd examples/h5 && npm install && npx vite --host
 ```
 
-> 示例中的 `mini-three-adapter: "workspace:*"` 假设使用 pnpm workspace。独立运行改成 `"file:../.."`；包发布到 npm 后改成 `"^0.1.0"`，就不需要先在仓库根目录构建了。
+> 示例中的 `mini-three-adapter: "workspace:*"` 用于在本仓库内直接联调源码。把示例目录单独拷出去运行时，改成 `"mini-three-adapter": "^0.1.0"`（或直接 `npm i mini-three-adapter`），无需先在仓库根目录构建。
 
 ## 事件接线差异
 

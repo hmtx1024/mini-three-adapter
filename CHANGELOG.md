@@ -10,8 +10,13 @@
 - 新增 `clean`（清空 `dist/`）、`prepublishOnly`（发布前清理并跑 `npm run check`）与 `release:check`（`npm pack --dry-run --json`）脚本；`.gitignore` 忽略本地 `.tgz` 与 `.npmrc`。
 - 新增 `scripts/clean.mjs`，避免历史 hash chunk 被带进发布包。
 - `docs/09` 扩写完整的 npm 发布流程：账号与 2FA、包名检查、本地 tarball 演练、正式发布、发布后验证、版本迭代、CI 自动发布与其他分发方式。
-- `README.md` 补充未发布时的本地安装方式。
+- `README.md` 补充安装说明与 three / Node 版本要求。
 - 补齐 `repository` / `homepage` / `bugs` 元数据，指向 GitHub 仓库。
+
+### Changed
+
+- 移除 `README.md` 中「包尚未发布到 npm 时」的条件说明，安装节只保留命令与版本要求。
+- `examples/README.md` 改为以 npm 发布版本为默认，`workspace:*` 仅用于仓库内联调源码。
 
 ## [0.1.0] - 2026-11-08
 

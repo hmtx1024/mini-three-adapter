@@ -29,7 +29,7 @@ npm i mini-three-adapter three
 npm i -D vite @types/three
 ```
 
-包尚未发布到 npm 时，改用本地路径 `"mini-three-adapter": "file:../.."`，或先执行 `npm pack` 生成 tarball 再安装。发布流程见 [`docs/09-testing-and-release.md`](./docs/09-testing-and-release.md#95-发布到-npm)。
+需要 `three >= 0.163.0`（WebGL2）与 Node.js >= 18。
 
 ### 1) 配置构建插件
 
