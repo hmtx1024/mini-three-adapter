@@ -1,0 +1,17 @@
+node_modules/
+dist/
+dist-types/
+.tmp/
+coverage/
+*.log
+.DS_Store
+.vscode/
+.workbuddy/
+.idea/
+*.tsbuildinfo
+*.tgz
+.npmrc
+tsup.config.bundled_*.mjs
+*.timestamp-*.mjs
+examples/*/dist/
+examples/*/node_modules/

@@ -1,0 +1,12 @@
+<view class="page">
+  <canvas
+    type="webgl2"
+    id="gl"
+    class="gl"
+    bindtouchstart="onTouch"
+    bindtouchmove="onTouch"
+    bindtouchend="onTouch"
+    bindtouchcancel="onTouch"
+    bindtap="onTouch"
+  />
+</view>

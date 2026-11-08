@@ -1,0 +1,28 @@
+{
+  "appid": "touristappid",
+  "projectname": "mini-three-adapter-demo",
+  "compileType": "game",
+  "libVersion": "3.0.0",
+  "setting": {
+    "es6": true,
+    "enhance": true,
+    "minified": false,
+    "postcss": false,
+    "urlCheck": false,
+    "coverView": false,
+    "showShadowRootInWxmlPanel": false,
+    "packNpmManually": false,
+    "packNpmRelationList": [],
+    "babelSetting": {
+      "ignore": [],
+      "disablePlugins": [],
+      "outputPath": ""
+    }
+  },
+  "miniprogramRoot": "dist/",
+  "srcMiniprogramRoot": "dist/",
+  "packOptions": {
+    "ignore": [],
+    "include": []
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "pages": ["pages/index/index"],
+  "window": {
+    "navigationBarTitleText": "mini-three-adapter",
+    "navigationBarBackgroundColor": "#101820",
+    "navigationBarTextStyle": "white"
+  },
+  "subpackages": [
+    {
+      "name": "three-assets",
+      "root": "assets/three/"
+    }
+  ]
+}

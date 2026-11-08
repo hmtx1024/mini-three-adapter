@@ -1,0 +1,65 @@
+# mini-three-adapter
+
+> A modern TypeScript-first, ESM, zero-global-pollution Three.js adapter for WeChat Mini Games / Mini Programs. Build-time AST rewriting redirects third-party browser globals into a scoped object; runtime patches the single wx canvas in place and exposes one disposable MiniThreeRuntime. MIT licensed, no runtime dependency on three.
+
+## Start here (AI agents)
+
+- [AGENTS.md](./AGENTS.md): hard constraints, commands, invariants, review checklist. READ FIRST.
+- [docs/10-ai-playbook.md](./docs/10-ai-playbook.md): prompt templates and iteration workflow.
+- [docs/03-module-map.md](./docs/03-module-map.md): which file to edit for a given change.
+
+## Core docs
+
+- [README.md](./README.md): overview, quick start, architecture sketch.
+- [docs/README.md](./docs/README.md): documentation index and reading order.
+- [docs/01-design-principles.md](./docs/01-design-principles.md): goals, runtime constraints, technology choices, capability boundaries.
+- [docs/02-architecture.md](./docs/02-architecture.md): layering, data flow, 10 architecture invariants, failure modes.
+- [docs/04-api-reference.md](./docs/04-api-reference.md): every public export and signature.
+- [docs/05-build-plugin.md](./docs/05-build-plugin.md): AST rewriting, WebGPU policy, asset collection, manifest.
+- [docs/06-platform-notes.md](./docs/06-platform-notes.md): WeChat runtime facts, known bugs, import order, packaging.
+- [docs/07-integration-guide.md](./docs/07-integration-guide.md): integrating into an existing project, subpackages, checklist.
+- [docs/08-extension-guide.md](./docs/08-extension-guide.md): add a platform / polyfill / asset rule.
+- [docs/09-testing-and-release.md](./docs/09-testing-and-release.md): commands, CI, npm publishing workflow, version bumps.
+- [docs/11-compat-matrix.md](./docs/11-compat-matrix.md): three.js / base library / platform support matrix.
+
+## Architecture decision records
+
+- [docs/adr/README.md](./docs/adr/README.md): ADR index and template.
+- [ADR-0001 scoped globals](./docs/adr/0001-scoped-globals.md)
+- [ADR-0002 unified runtime lifecycle](./docs/adr/0002-unified-runtime-lifecycle.md)
+- [ADR-0003 AST rewrite](./docs/adr/0003-ast-rewrite.md)
+- [ADR-0004 in-place patching](./docs/adr/0004-in-place-patching.md)
+- [ADR-0005 WebGL2 only](./docs/adr/0005-webgl2-only.md)
+- [ADR-0006 zero three dependency](./docs/adr/0006-zero-three-dependency.md)
+
+## Source entry points
+
+- [src/index.ts](./src/index.ts): umbrella exports.
+- [src/scope.ts](./src/scope.ts): MiniThreeScope, getActiveScope, installGlobals (target of the injected plugin import).
+- [src/core/runtime.ts](./src/core/runtime.ts): createRuntime, MiniThreeRuntime, lifecycle.
+- [src/core/platform.ts](./src/core/platform.ts): PlatformBinding contract.
+- [src/core/pointer.ts](./src/core/pointer.ts): touch -> pointer event state machine.
+- [src/core/element.ts](./src/core/element.ts): in-place DOM patching + Symbol.hasInstance registry.
+- [src/core/canvas.ts](./src/core/canvas.ts): canvas patching, context cache, WebGL normalization.
+- [src/build/scope-rewrite.ts](./src/build/scope-rewrite.ts): Babel-based global rewriting.
+- [src/build/plugin-core.ts](./src/build/plugin-core.ts): Rollup/Vite plugin core.
+- [src/build/assets.ts](./src/build/assets.ts): worker/wasm collection and manifest.
+- [src/platforms/wechat-game.ts](./src/platforms/wechat-game.ts): mini game entry.
+- [src/platforms/wechat-miniprogram.ts](./src/platforms/wechat-miniprogram.ts): mini program entry.
+- [src/platforms/browser.ts](./src/platforms/browser.ts): H5 / Node test platform.
+- [package.json](./package.json): exports map, scripts, peers.
+- [tsup.config.ts](./tsup.config.ts): two build targets (es2019 runtime / node18 tooling).
+
+## Tests and examples
+
+- [tests/runtime.test.ts](./tests/runtime.test.ts): canvas patching, scope, touch bridge, disposal.
+- [tests/scope-rewrite.test.ts](./tests/scope-rewrite.test.ts): AST correctness.
+- [tests/polyfills.test.ts](./tests/polyfills.test.ts): event/blob/url/network.
+- [tests/plugin.test.ts](./tests/plugin.test.ts): plugin and assets.
+- [tests/helpers/mock-wx.ts](./tests/helpers/mock-wx.ts): injectable wx simulator.
+- [examples/README.md](./examples/README.md): three runnable targets (mini game / mini program / H5).
+
+## Optional
+
+- [CHANGELOG.md](./CHANGELOG.md)
+- [CONTRIBUTING.md](./CONTRIBUTING.md)

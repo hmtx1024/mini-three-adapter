@@ -1,0 +1,19 @@
+{
+  "name": "@mini-three-adapter/example-wechat-minigame",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "vite build && node scripts/postbuild.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "mini-three-adapter": "workspace:*",
+    "three": "^0.187.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.187.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  }
+}
