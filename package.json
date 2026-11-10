@@ -1,6 +1,6 @@
 {
   "name": "mini-three-adapter",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A modern, TypeScript-first, zero-global-pollution Three.js adapter for WeChat Mini Games and Mini Programs",
   "type": "module",
   "types": "./dist/index.d.ts",
