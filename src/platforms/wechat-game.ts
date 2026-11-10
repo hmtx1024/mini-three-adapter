@@ -64,8 +64,13 @@ export function createWeChatGameBinding(options: WeChatGameOptions = {}): Platfo
     overrides: options.capabilities,
     diagnostics,
     // The on-screen canvas is already resolved above, so a second
-    // createCanvas() is guaranteed to be off-screen and safe to probe.
-    probeContext: (type) => probeContext(wx, type, { allowCanvasFallback: true }),
+    // createCanvas() is guaranteed to be off-screen and safe to probe — except
+    // when the host seeded `GameGlobal.screencanvas`: then the first call was
+    // never consumed and can still hand the screen canvas back. Passing it in
+    // lets `probeContext` refuse that object by identity instead of creating
+    // and immediately losing its context.
+    probeContext: (type) =>
+      probeContext(wx, type, { allowCanvasFallback: true, screenCanvas: rawCanvas }),
   });
   const imageFactory = createWechatImageFactory(wx, diagnostics);
   const raf = createRafPair(wx, rawCanvas);

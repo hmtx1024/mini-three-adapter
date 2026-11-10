@@ -76,6 +76,17 @@ export interface ProbeContextOptions {
    * an off-screen canvas. Callers must opt in explicitly (see ADR-0007).
    */
   allowCanvasFallback?: boolean;
+  /**
+   * The on-screen canvas, when the caller already holds it.
+   *
+   * WeChat returns the *on-screen* canvas from the first `createCanvas()` call.
+   * A host that seeded the canvas through `GameGlobal.screencanvas` never
+   * consumes that first call, so the fallback below can receive the screen
+   * canvas back. Probing it would create a context on it and then destroy it
+   * with `WEBGL_lose_context` — a black screen with no error. When the returned
+   * canvas is this object the probe gives up instead of touching it.
+   */
+  screenCanvas?: WxCanvas;
 }
 
 /** Try one canvas; returns `false` when the context is simply unavailable. */
@@ -118,7 +129,11 @@ export function probeContext(
   if (offscreen === true) return true;
   if (options.allowCanvasFallback && typeof wx.createCanvas === 'function') {
     try {
-      return probeRawContext(wx.createCanvas(), type);
+      const raw = wx.createCanvas();
+      // Identity check, not a heuristic: the screen canvas must never be
+      // probed, because probing creates a context and then loses it.
+      if (options.screenCanvas && raw === options.screenCanvas) return undefined;
+      return probeRawContext(raw, type);
     } catch {
       return undefined;
     }

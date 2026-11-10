@@ -219,22 +219,27 @@ export class MiniEventTarget implements EventTargetLike {
   dispatchEvent(event: unknown): boolean {
     const ev = event as MiniEvent | null;
     if (!ev || typeof ev.type !== 'string') return true;
-    if (ev.target == null) ev.target = this;
-    ev.currentTarget = this;
+    // `this` is the internal carrier when the methods were patched onto another
+    // object. Every observable "who dispatched this" value must be the real
+    // element instead: three's ImageLoader keeps `this` as the texture source,
+    // so leaking the carrier gives it an object with no pixels.
+    const host = (this.inlineHost ?? this) as Record<string, unknown>;
+    const target = host as unknown as object;
+    if (ev.target == null) ev.target = target;
+    ev.currentTarget = target;
 
     const set = this.listeners.get(ev.type);
     if (set) {
       // copy so listeners may remove themselves during dispatch
       for (const record of Array.from(set)) {
         if (record.once) set.delete(record);
-        if (typeof record.listener === 'function') record.listener.call(this, ev);
+        if (typeof record.listener === 'function') record.listener.call(target, ev);
         else record.listener.handleEvent(ev);
         if (ev instanceof MiniEvent && ev._immediateStopped) break;
       }
       if (set.size === 0) this.listeners.delete(ev.type);
     }
 
-    const host = (this.inlineHost ?? this) as Record<string, unknown>;
     const inline = host['on' + ev.type];
     if (typeof inline === 'function') (inline as (e: unknown) => void).call(host, ev);
 
