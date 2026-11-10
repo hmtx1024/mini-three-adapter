@@ -200,7 +200,7 @@ interface PlatformBinding {
 | API | 说明 |
 | --- | --- |
 | `MiniEvent` / `MiniCustomEvent` / `MiniPointerEvent` / `MiniMouseEvent` / `MiniMessageEvent` / `MiniProgressEvent` / `MiniDOMException` | 事件对象 |
-| `MiniEventTarget` / `patchEventTarget(obj)` | 事件目标；`patchEventTarget` 不改变对象身份 |
+| `MiniEventTarget` / `patchEventTarget(obj)` | 事件目标；`patchEventTarget` 不改变对象身份。监听器被调用时 `this`、`event.target`、`event.currentTarget` 都是**宿主元素**而不是内部载体——three 的 `ImageLoader` 用 `this` 取 `<img>` 当纹理源，拿错对象就等于没有像素 |
 | `MiniBlob` | `bytes()`、`arrayBuffer()`、`text()`、`slice()`、`dataURL()`、`size`、`type` |
 | `MiniURL` | `createObjectURL` / `revokeObjectURL` / `resolveObjectURL` / `clearObjectURLs`；构造器支持相对路径解析 |
 | `MiniURLSearchParams` | `get` / `set` / `toString` |

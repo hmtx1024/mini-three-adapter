@@ -219,6 +219,7 @@ Page({
 | `Uncaught TypeError: Class constructor xxx cannot be invoked without 'new'`，栈顶在 `GLTFLoader.js` 的 `new TextDecoder()` 处 | 构建期把 `new TextDecoder()` 改成了 `(new __m3()).TextDecoder()` | 升级适配层；临时规避见 [`docs/05` §5.7](./05-build-plugin.md#57-调试构建问题) |
 | `SyntaxError: Unexpected token '.'`，产物里出现 `{ __m3().xxx }` | 对象简写属性被原地替换 | 同上 |
 | 纹理永远加载不出来、`ImageLoader` 卡满超时；`img.onload` 与 `addEventListener('load')` 都不触发 | 图片 shim 没有把原生 `onload` 桥接到合成事件 | 升级适配层；日志里出现 `image has no writable onload/onerror` 说明宿主图片对象不可拦截 |
+| 纹理"加载成功"但画面无变化、法线 / 环境贴图不生效；`texture.image` 没有 `src` 也没有宽高 | 监听器里的 `this` 是内部事件载体，`ImageLoader` 把它当成 `<img>` 存进了 `Texture.source.data` | 升级适配层（0.1.3+）。若业务里自己写过 `image.inlineHost` 取真图，可以删掉 |
 | `capabilities.webgl2 === false`，但 `#version 300 es` 能正常渲染 | 能力探测用了离屏画布，离屏与上屏能力不同 | 看 `capabilities.webgl2Source`：`'inferred'` 表示未实测；需要以实测为准时显式传 `capabilities: { webgl2: true }` |
 | `Scoped global "document" was read before a runtime was created` | 在 `createXxxRuntime()` 之前求值了读 `document` 的模块 | 改为动态 `import()`；若是 `typeof document` 特性检测，升级后不会再抛 |
 | 触摸事件收不到 | 小程序未转发 `bindtouch*`，或小游戏在 runtime 之后才注册监听 | 见 [`docs/06`](./06-platform-notes.md) 与 §7.5 |

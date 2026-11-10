@@ -109,7 +109,8 @@
 | 「在运行时把 `WebGLRenderer.render` 猴补丁一下清深度」 | 隐式、不可观测、与 three 版本强耦合 | 应用层显式 `renderer.clearDepth()`，写进文档 |
 | 「把 three 一起打包进适配层省事」 | 体积、版本冲突、许可 | `three` 保持 optional peer + external |
 | 「WebGPU 不支持就 `try/catch` 回退」 | 小游戏根本没有 WebGPU 且 NodeMaterial 无 WebGL 等价物 | 插件 `webgpu` 策略 + 使用 WebGL 构建目标 |
-| 「能力探测时直接 `wx.createCanvas().getContext('webgl2')`」 | 偷走唯一上屏画布、且用默认属性抢先建上下文 | 用 `wx.createOffscreenCanvas()`；仅按 ADR-0007 显式回退 |
+| 「能力探测时直接 `wx.createCanvas().getContext('webgl2')`」 | 偷走唯一上屏画布、且用默认属性抢先建上下文 | 用 `wx.createOffscreenCanvas()`；按 ADR-0007 显式回退，并传 `screenCanvas` 做身份守卫 |
+| 「`patchEventTarget` 把方法绑到内部载体就够了」 | 监听器的 `this`、`event.target` 都变成载体，依赖「`this` 是元素」的库（three `ImageLoader`）会拿到没有像素的空壳 | `dispatchEvent` 统一转发到 `inlineHost`（宿主元素） |
 
 ## 10.6 机器可读的报告（给自动化 / CI 用）
 

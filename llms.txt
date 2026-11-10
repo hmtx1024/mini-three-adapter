@@ -58,7 +58,8 @@
 - [tests/polyfills.test.ts](./tests/polyfills.test.ts): event/blob/url/network.
 - [tests/plugin.test.ts](./tests/plugin.test.ts): plugin and assets.
 - [tests/image-events.test.ts](./tests/image-events.test.ts): native image onload/onerror bridge + decode.
-- [tests/capabilities.test.ts](./tests/capabilities.test.ts): context probing fallback and webgl2Source.
+- [tests/event-dispatch.test.ts](./tests/event-dispatch.test.ts): listener `this` / event.target / currentTarget resolve to the host element.
+- [tests/capabilities.test.ts](./tests/capabilities.test.ts): context probing fallback, screen-canvas identity guard, webgl2Source.
 - [tests/helpers/mock-wx.ts](./tests/helpers/mock-wx.ts): injectable wx simulator.
 - [examples/README.md](./examples/README.md): three runnable targets (mini game / mini program / H5).
 

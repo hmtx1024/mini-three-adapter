@@ -5,7 +5,7 @@
 ```bash
 npm install              # 安装依赖
 npm run typecheck        # tsc --noEmit（strict）
-npm test                 # vitest run（55 例）
+npm test                 # vitest run（63 例）
 npm test -- --watch      # 观察模式
 npm run build            # tsup：dist/*.js + *.d.ts + sourcemap
 npm run check            # typecheck + test + build
@@ -26,7 +26,8 @@ TMP="$PWD/.tmp/vitest" TEMP="$PWD/.tmp/vitest" npm test
 | `tests/runtime.test.ts` | 画布补丁、scope 隔离、上下文缓存、触摸桥、多指、installGlobals 可逆、resize/dispose、能力报告 |
 | `tests/plugin.test.ts` | 资产扫描、未解析资源、模块过滤、WebGPU 告警、manifest 输出 |
 | `tests/image-events.test.ts` | 图片原生 `onload`/`onerror` → 合成事件桥接、`decode()` settle、宿主不可拦截时的 `warnOnce` 去重 |
-| `tests/capabilities.test.ts` | 离屏优先 / 主画布回退 / 无法探测返回 `undefined`、`webgl2Source` 三态 |
+| `tests/event-dispatch.test.ts` | 监听器 `this`、`event.target` / `currentTarget` 指向宿主元素（含 three `ImageLoader` 取图场景）、`event.target` 不暴露内部监听表 |
+| `tests/capabilities.test.ts` | 离屏优先 / 主画布回退 / 无法探测返回 `undefined`、`webgl2Source` 三态、回退拿到上屏画布时按身份放弃 |
 | `tests/helpers/mock-wx.ts` | 可注入的 `wx` 模拟器（`__setSize`、`__touch`、`__canvases`、`__images`） |
 
 **新功能必须带测试**。写测试时优先用 `createMockWx()` 注入，不要在测试里依赖真实 `wx` 或浏览器 DOM。
@@ -88,7 +89,7 @@ jobs:
 ### 9.5.1 发布前检查
 
 ```bash
-npm run check          # typecheck + 55 例测试 + tsup 构建
+npm run check          # typecheck + 63 例测试 + tsup 构建
 npm run release:check  # npm pack --dry-run --json，看将要发布的文件清单
 ```
 

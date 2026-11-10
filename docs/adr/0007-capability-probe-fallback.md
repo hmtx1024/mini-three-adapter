@@ -19,12 +19,14 @@
    - `true` / `false` 表示**实测结果**；
    - `undefined` 表示**无法探测**。
 2. 探测顺序：离屏实测 → （仅当调用方显式允许时）第二次 `wx.createCanvas()` 实测 → 仍无法判定则返回 `undefined`。
-3. `detectCapabilities` 把 `undefined` 当作未知，退回基础库版本启发式（`>= 2.20.0`），并用新增的 `capabilities.webgl2Source`（`'probe' | 'inferred' | 'override'`）标明来源；此时 `warnOnce` 提示一次。
+3. 回退带**身份守卫**：调用方把上屏画布引用传给 `probeContext`（`screenCanvas`），若 `createCanvas()` 返回的正是这个对象，立即返回 `undefined`，既不 `getContext` 也不 `WEBGL_lose_context`。
+4. `detectCapabilities` 把 `undefined` 当作未知，退回基础库版本启发式（`>= 2.20.0`），并用新增的 `capabilities.webgl2Source`（`'probe' | 'inferred' | 'override'`）标明来源；此时 `warnOnce` 提示一次。
 
 ## 理由
 
 - 第二次 `wx.createCanvas()` 在微信里**保证**得到离屏画布（上屏画布只有第一次调用才返回），这与 `createOffscreenCanvasRaw` 里已有的兜底是同一机制，不违反「只有一个上屏画布」的本意：本意是**不要抢走那块上屏画布**，而不是禁用该 API。
-- 因此回退**必须**在上屏画布已经解析之后调用，并且由调用方显式 opt-in（`allowCanvasFallback`）。`wechat-game` 的 `getScreenCanvas()` 就在探测之前，所以传 `true`；`wechat-miniprogram` 的画布节点来自选择器查询，不能这样探测，保持不传。
+- 但「保证」有一个缺口：宿主若通过 `GameGlobal.screencanvas` 预置了上屏画布，`getScreenCanvas()` 会直接取用它、并没有消耗那次「首次调用」。此时回退的 `createCanvas()` 仍可能把同一块上屏画布交回来，`getContext('webgl2')` 会抢先建上下文，紧接着的 `WEBGL_lose_context.loseContext()` 把它废掉——表现为黑屏且不报错，极难排查。身份比对是唯一可靠的判据：不看版本、不看 API 是否存在，只看返回的是不是那块画布。
+- 因此回退**必须**在上屏画布已经解析之后调用，并且由调用方显式 opt-in（`allowCanvasFallback`）。`wechat-game` 的 `getScreenCanvas()` 就在探测之前，所以传 `true` 并附带 `screenCanvas`；`wechat-miniprogram` 的画布节点来自选择器查询，不能这样探测，保持不传。
 - `webgl2Source` 让「这份报告里的 `false` 到底是实测还是猜测」一眼可见，这是本次缺陷里最伤排查成本的部分。
 
 ## 后果
@@ -51,5 +53,5 @@
 
 ## 验证方式
 
-- `tests/capabilities.test.ts`：离屏优先且不碰 `createCanvas`、离屏不可用时回退、离屏返回 false 而主画布返回 true、完全无法探测时返回 `undefined`、`webgl2Source` 三种取值。
+- `tests/capabilities.test.ts`：离屏优先且不碰 `createCanvas`、离屏不可用时回退、离屏返回 false 而主画布返回 true、完全无法探测时返回 `undefined`、回退拿到上屏画布时按身份放弃（`getContext` 零调用）、`webgl2Source` 三种取值，以及 `GameGlobal.screencanvas` 预置时 `createWeChatGameBinding` 不触碰屏画布。
 - `tests/runtime.test.ts`：小游戏运行时能力报告仍包含 `wechat-game` 与 `WebGL2`。

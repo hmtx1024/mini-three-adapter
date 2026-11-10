@@ -17,7 +17,7 @@
 
 | 文件 | 职责 | 关键导出 | 改这里 | 会影响 / 测试 |
 | --- | --- | --- | --- | --- |
-| `src/polyfills/event.ts` | W3C 事件系统 | `MiniEvent`、`MiniPointerEvent`、`MiniMouseEvent`、`MiniEventTarget`、`patchEventTarget`、`MiniDOMException` | 事件字段缺失（如 controls 读 `movementX`）、`onxxx` 内联处理器 | `pointer.ts`、`dom.ts`；`tests/polyfills.test.ts` |
+| `src/polyfills/event.ts` | W3C 事件系统，`patchEventTarget` 把方法绑到内部载体但把 `this` / `event.target` / `currentTarget` 转发给宿主元素 | `MiniEvent`、`MiniPointerEvent`、`MiniMouseEvent`、`MiniEventTarget`、`patchEventTarget`、`MiniDOMException` | 事件字段缺失（如 controls 读 `movementX`）、`onxxx` 内联处理器、监听器拿不到事件目标 | `pointer.ts`、`dom.ts`；`tests/polyfills.test.ts`、`tests/event-dispatch.test.ts` |
 | `src/polyfills/blob-url.ts` | Blob / URL / base64 / URL 相对解析 | `MiniBlob`、`MiniURL`、`bytesToBase64`、`resolveUrl` | `createObjectURL` 的目标格式、URL 解析边界 | `image.ts` 的 `src` 解析；`tests/polyfills.test.ts` |
 | `src/polyfills/text-encoding.ts` | `atob`/`btoa`/`TextEncoder`/`TextDecoder` | 同名 | 编码边界、BOM、utf-16 | `network.ts`、`blob-url.ts`；`tests/polyfills.test.ts` |
 | `src/polyfills/network.ts` | `fetch`、`XMLHttpRequest`、`AbortController` | `createFetch`、`createXMLHttpRequestFactory`、`MiniAbortController` | `wx.request` 返回结构差异、进度事件 | `runtime.ts` 的 scope 组装；`tests/polyfills.test.ts` |
@@ -47,7 +47,7 @@
 | 文件 | 职责 | 关键导出 | 改这里 | 会影响 |
 | --- | --- | --- | --- | --- |
 | `src/platforms/wx-types.ts` | 手写最小 `wx` 结构化类型（不依赖官方 typings） | `WxLike`、`WxCanvas`、`WxTouchEvent`、`resolveWx` | 用到新的 `wx.*` API 时补类型 | 所有平台；`docs/04` |
-| `src/platforms/wechat-common.ts` | rAF / now / touch / visibility / 离屏画布 / 能力探测共用实现 | `watchWxTouch`、`createRafPair`、`probeContext`（返回 `boolean \| undefined`）等 | 微信 API 变更、探测回退策略（ADR-0007） | `wechat-game.ts`、`wechat-miniprogram.ts` |
+| `src/platforms/wechat-common.ts` | rAF / now / touch / visibility / 离屏画布 / 能力探测共用实现 | `watchWxTouch`、`createRafPair`、`probeContext`（返回 `boolean \| undefined`，按 `screenCanvas` 身份拒绝探测上屏画布）等 | 微信 API 变更、探测回退策略（ADR-0007） | `wechat-game.ts`、`wechat-miniprogram.ts` |
 | `src/platforms/wechat-game.ts` | 小游戏绑定 + 入口 | `createWeChatGameRuntime`、`createWeChatGameBinding`、`getScreenCanvas` | **上屏画布获取顺序**、锁帧 | `examples/wechat-minigame` |
 | `src/platforms/wechat-miniprogram.ts` | 小程序绑定（`createSelectorQuery`） | `createWeChatMiniProgramRuntime` | 选择器查询、组件作用域 `selectorCtx` | `examples/wechat-miniprogram` |
 | `src/platforms/browser.ts` | 浏览器 / Node 测试平台 | `createBrowserRuntime`、`createBrowserBinding` | H5 双端能力 | `examples/h5` |
@@ -93,7 +93,7 @@
 
 ## 3.8 修改后必做
 
-1. `npm run check`（typecheck + 55 例单测 + tsup 构建）。
+1. `npm run check`（typecheck + 63 例单测 + tsup 构建）。
 2. 更新本表（若职责变化）、`docs/04-api-reference.md`（若导出变化）、`CHANGELOG.md`。
 3. 若触及架构不变量，新增或修订 `docs/adr/*.md`。
 4. 若新增了平台能力，更新 `docs/11-compat-matrix.md`。

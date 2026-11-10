@@ -4,6 +4,26 @@
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-10
+
+0.1.2 的复核补充：两个在真机上不报错、但会让贴图静默失效 / 偶发黑屏的缺陷。
+
+### Added
+
+- 新增 `tests/event-dispatch.test.ts`：监听器 `this`、`event.target` / `currentTarget` 指向宿主元素，含 three `ImageLoader` 按 `this` 取 `<img>` 的真实场景。
+- `tests/capabilities.test.ts` 增加两条用例：回退 `createCanvas()` 返回上屏画布时按身份放弃（`getContext` 零调用）；`GameGlobal.screencanvas` 预置时 `createWeChatGameBinding` 不触碰屏画布。
+- `ProbeContextOptions.screenCanvas`：调用方把上屏画布引用传给 `probeContext`，供回退时做身份比对。
+
+### Fixed
+
+- **运行期：监听器里的 `this` 不是事件目标（P1）**。`patchEventTarget` 把事件方法绑到内部 `MiniEventTarget` 载体上，`dispatchEvent` 里 `record.listener.call(this, ev)` 传出去的是载体，`event.target` / `currentTarget` 同样指向载体。three 的 `ImageLoader.onImageLoad` 用 `this` 取图片存进 `Texture.source.data`，于是 `texture.image` 变成只有 `listeners` / `inlineHost` 的空壳，没有 `src`、没有宽高，`texImage2D` 拿不到像素——法线贴图这类效果静默失效。现在 `this`、`event.target`、`event.currentTarget` 一律转发到宿主元素。
+- **能力探测：回退可能废掉上屏画布（P1，宿主未报错但存在黑屏路径）**。宿主若用 `GameGlobal.screencanvas` 预置了上屏画布，`getScreenCanvas()` 直接取用它、没有消耗「首次 `createCanvas()`」；回退分支再调 `createCanvas()` 仍可能拿回同一块上屏画布，`getContext('webgl2')` 抢先建上下文后被 `WEBGL_lose_context.loseContext()` 废掉。现在 `probeContext` 收到 `screenCanvas` 后按对象身份比对，命中即放弃探测并退回 `webgl2Source: 'inferred'`。
+
+### Tests
+
+- 用例从 55 增至 63。
+- `tests/event-dispatch.test.ts` 在修复前 4 例失败、1 例通过（独立 `MiniEventTarget` 不经过 `patchEventTarget`，因此本来是对的），修复后 5 例全绿。
+
 ## [0.1.2] - 2026-11-10
 
 适配层在小游戏真机上暴露的五个缺陷修复，其中三个 P0 会直接导致构建产物报错或纹理静默丢失。
