@@ -164,12 +164,12 @@ function installGlobals(scope, options?): () => void;
 | `*Shim` | `HTMLCanvasElementShim`、`HTMLImageElementShim`、`HTMLElementShim`、`OffscreenCanvasShim`、`ImageDataShim`、`WebGLRenderingContextShim`、`WebGL2RenderingContextShim`、`DOMRectShim` |
 | `patchCanvas(raw, options)` | 返回 `{ canvas, contexts, updateRect, element, disposers }` |
 | `createOffscreenCanvas(wx, w?, h?, options?)` | 直接创建并补丁离屏画布 |
-| `createImageFactory(wx, diagnostics?)` | `{ Image, HTMLImageElement, ImageData, createImage, createImageData, createImageBitmap: undefined }` |
+| `createImageFactory(wx, diagnostics?)` | `{ Image, HTMLImageElement, ImageData, createImage, createImageData, createImageBitmap: undefined }`。工厂会把底层 `wx` 图片的**原生** `onload`/`onerror` 桥接成合成事件：`img.onload = fn` 与 `addEventListener('load', fn)` 都能收到通知，`decode()` 也据此 settle |
 | `createDocument(options)` / `createScreen(w, h)` / `ShimDOMRect` | 伪 DOM 容器 |
 | `PointerBridge` | `dispatch(event, opts?)`、`dispatchMouse(event)`、`setRect`、`refreshRect`、`setPointerCapture`、`releasePointerCapture`、`activePointerCount`、`dispose` |
 | `createFrameScheduler(raf, caf, options)` | `request` / `cancel` / `loop(cb)` / `setFpsCap` / `fps` / `dispose` |
 | `createWindowInfoStore(wx, options)` | `info` / `refresh()` / `onChange()` / `setPixelRatioCap()` / `dispose()` |
-| `detectCapabilities(wx, platform, options)` / `versionAtLeast(a, b)` | 能力探测 |
+| `detectCapabilities(wx, platform, options)` / `versionAtLeast(a, b)` | 能力探测。`options.probeContext(type)` 返回 `true` / `false` / `undefined`，**`undefined` 表示「探测不到」而不是「不支持」**，此时 `webgl2` 按基础库版本推断并在 `webgl2Source` 里标记为 `'inferred'` |
 | `createDiagnostics(level, reporter)` / `capabilityReport(caps)` | 日志与报告 |
 | `currentScope()` | 返回当前作用域或 `null` |
 
@@ -270,7 +270,10 @@ plugins: [miniThree(options)];
 ```ts
 interface Capabilities {
   platform: 'wechat-game' | 'wechat-miniprogram' | 'browser' | 'unknown';
-  webgl2: boolean; webgl1: boolean; offscreenCanvas: boolean;
+  webgl2: boolean;
+  /** 'probe' 实测 / 'inferred' 版本推断 / 'override' 调用方覆盖 */
+  webgl2Source?: 'probe' | 'inferred' | 'override';
+  webgl1: boolean; offscreenCanvas: boolean;
   worker: boolean; wasm: boolean; brotliWasm: boolean; nativeImage: boolean;
   triggerGC: boolean; getWindowInfo: boolean; windowResizeEvent: boolean;
   baseLibraryVersion: string;

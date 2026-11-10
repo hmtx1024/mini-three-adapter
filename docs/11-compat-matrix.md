@@ -28,7 +28,8 @@
 | --- | --- | --- | --- |
 | `wx.createCanvas` / `getContext('webgl2')` | — | ✅ | [渲染文档](https://developers.weixin.qq.com/minigame/dev/guide/base-ability/render.html) |
 | 唯一上屏画布规则 | — | ✅ | `getScreenCanvas()` 单次缓存 |
-| `wx.createOffscreenCanvas` | 2.7.0（小程序）/ 小游戏同期 | ✅ | 能力探测与离屏画布；不可用时明确报错 |
+| `wx.createOffscreenCanvas` | 2.7.0（小程序）/ 小游戏同期 | ✅ | 离屏画布首选来源；探测不到时回退到第二次 `createCanvas()`（[ADR-0007](./adr/0007-capability-probe-fallback.md)） |
+| WebGL2 能力判定 | — | ✅ | 顺序：离屏实测 → 主画布实测 → 按基础库版本推断；`capabilities.webgl2Source` 标明来源，`'inferred'` 表示未实测 |
 | `wx.getWindowInfo` | 较新版本 | ✅ | 回退 `getSystemInfoSync` |
 | `wx.onWindowResize` | — | 🟡 | 不可用时告警，需手动 `runtime.resize()` |
 | `WXWebAssembly` | 2.13.0（Worker 内 2.15.0） | 🟡 | [官方文档](https://developers.weixin.qq.com/minigame/dev/guide/performance/perf-webassembly.html)；插件按引用拷贝 wasm |
@@ -80,7 +81,7 @@
 | `loader_*` | GLTF / DRACO / KTX2 / OBJ / FBX | ⬜ 未回归 | 需配置 decoder 路径与分包 |
 | `postprocessing_*` | EffectComposer / bloom / SSAO | ⬜ 未回归 | 注意深度缓冲与 render target 尺寸 |
 | `animation_*` / `physics_*` | 骨骼动画 / wasm 物理 | ⬜ 未回归 | 涉及 wasm 资源预下载 |
-| 基础渲染 | `examples/wechat-minigame`、`wechat-miniprogram`、`h5` | ✅ 单元级 | 32 个 Vitest 用例覆盖画布、事件、作用域、插件 |
+| 基础渲染 | `examples/wechat-minigame`、`wechat-miniprogram`、`h5` | ✅ 单元级 | 55 个 Vitest 用例覆盖画布、事件、作用域、插件 |
 
 每回归一条，在本表追加：`场景 id | three 版本 | 基础库 | 设备 | 结果 | 失败原因 | 新增 polyfill`。
 

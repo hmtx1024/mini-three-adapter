@@ -32,12 +32,12 @@
 | `src/core/runtime.ts` | **总装配**：画布补丁、scope 组装、订阅、生命周期 | `createRuntime`、`MiniThreeRuntime`、`RuntimeOptions`、`RendererHints` | 新增 runtime API、新增/移除全局项、调整启动顺序 | 几乎所有模块；`tests/runtime.test.ts` |
 | `src/core/element.ts` | 就地 DOM 属性补丁 + `Symbol.hasInstance` 注册表 | `patchElement`、`createMockClass`、`*Shim`、`normalizeRect` | three 报「DOM 属性缺失」、`instanceof` 失败 | `canvas.ts`、`image.ts`、`dom.ts` |
 | `src/core/canvas.ts` | canvas 补丁：getContext 缓存、WebGL 归一化、离屏画布 | `patchCanvas`、`createOffscreenCanvas` | 上下文丢失、扩展返回值异常、`canvas.canvas` 指向 | `dom.ts`、`runtime.ts`；`tests/runtime.test.ts` |
-| `src/core/image.ts` | Image / ImageData 工厂，blob URL → data URL | `createImageFactory`、`ShimImageData` | 图片加载、crossOrigin、decode | `platforms/*`、`dom.ts` |
+| `src/core/image.ts` | Image / ImageData 工厂，blob URL → data URL，**原生 `onload`/`onerror` → 合成事件桥接** | `createImageFactory`、`ShimImageData` | 图片加载、crossOrigin、decode、事件不触发 | `platforms/*`、`dom.ts`；`tests/image-events.test.ts` |
 | `src/core/dom.ts` | `document` / `body` / `screen` / `DOMRect` / `OffscreenCanvas` 构造器 | `createDocument`、`createScreen`、`ShimDOMRect`、`createOffscreenCanvasCtor` | `document.createElement` 新标签、`visibilityState` | `runtime.ts` |
 | `src/core/pointer.ts` | **touch → pointer/mouse 状态机** | `PointerBridge` | 多指、capture、`tap` 无 touches、坐标换算 | `runtime.ts`、`examples/*`；`tests/runtime.test.ts` |
 | `src/core/frames.ts` | rAF 包装、delta、fpsCap、FPS 测量 | `createFrameScheduler` | 帧率限制、慢帧告警 | `runtime.ts` |
 | `src/core/window-info.ts` | 窗口信息 + DPR 封顶 + resize 广播 | `createWindowInfoStore`、`readWindowInfo` | 新 API 替代 `getWindowInfo`、安全区 | `runtime.ts`；`tests/runtime.test.ts` |
-| `src/core/capabilities.ts` | 能力探测（不消费上屏画布） | `detectCapabilities`、`versionAtLeast` | 新增探测项、基础库版本判断 | 所有 `platforms/*`、`runtime.report()` |
+| `src/core/capabilities.ts` | 能力探测（离屏优先，主画布回退；**不消费上屏画布**） | `detectCapabilities`、`versionAtLeast`、`webgl2Source` | 新增探测项、「探测不到」的语义 | 所有 `platforms/*`、`runtime.report()`；`tests/capabilities.test.ts` |
 | `src/core/diagnostics.ts` | 分级日志、`warnOnce`、能力报告 | `createDiagnostics`、`capabilityReport` | 日志格式、报告字段 | 全局；`tests/runtime.test.ts` |
 
 > 约束：`core/*` 不得 import `platforms/*`，不得 import `three`，不得直接写 `globalThis`。
@@ -47,7 +47,7 @@
 | 文件 | 职责 | 关键导出 | 改这里 | 会影响 |
 | --- | --- | --- | --- | --- |
 | `src/platforms/wx-types.ts` | 手写最小 `wx` 结构化类型（不依赖官方 typings） | `WxLike`、`WxCanvas`、`WxTouchEvent`、`resolveWx` | 用到新的 `wx.*` API 时补类型 | 所有平台；`docs/04` |
-| `src/platforms/wechat-common.ts` | rAF / now / touch / visibility / 离屏画布 / 能力探测共用实现 | `watchWxTouch`、`createRafPair`、`probeContext` 等 | 微信 API 变更 | `wechat-game.ts`、`wechat-miniprogram.ts` |
+| `src/platforms/wechat-common.ts` | rAF / now / touch / visibility / 离屏画布 / 能力探测共用实现 | `watchWxTouch`、`createRafPair`、`probeContext`（返回 `boolean \| undefined`）等 | 微信 API 变更、探测回退策略（ADR-0007） | `wechat-game.ts`、`wechat-miniprogram.ts` |
 | `src/platforms/wechat-game.ts` | 小游戏绑定 + 入口 | `createWeChatGameRuntime`、`createWeChatGameBinding`、`getScreenCanvas` | **上屏画布获取顺序**、锁帧 | `examples/wechat-minigame` |
 | `src/platforms/wechat-miniprogram.ts` | 小程序绑定（`createSelectorQuery`） | `createWeChatMiniProgramRuntime` | 选择器查询、组件作用域 `selectorCtx` | `examples/wechat-miniprogram` |
 | `src/platforms/browser.ts` | 浏览器 / Node 测试平台 | `createBrowserRuntime`、`createBrowserBinding` | H5 双端能力 | `examples/h5` |
@@ -93,7 +93,7 @@
 
 ## 3.8 修改后必做
 
-1. `npm run check`（typecheck + 32 例单测 + tsup 构建）。
+1. `npm run check`（typecheck + 55 例单测 + tsup 构建）。
 2. 更新本表（若职责变化）、`docs/04-api-reference.md`（若导出变化）、`CHANGELOG.md`。
 3. 若触及架构不变量，新增或修订 `docs/adr/*.md`。
 4. 若新增了平台能力，更新 `docs/11-compat-matrix.md`。

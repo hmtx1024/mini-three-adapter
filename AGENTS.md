@@ -21,7 +21,7 @@
 
 ```bash
 npm run typecheck   # tsc --noEmit, strict + noUncheckedIndexedAccess
-npm test            # vitest run（单 fork，32 例）
+npm test            # vitest run（单 fork，55 例）
 npm run build       # tsup → dist/*.js + *.d.ts
 npm run check       # 以上全部
 ```
@@ -30,7 +30,7 @@ Windows 临时目录权限问题：`TMP="$PWD/.tmp/vitest" TEMP="$PWD/.tmp/vites
 
 ## 架构不变量（**不得破坏**）
 
-1. **只有一个上屏画布**：`wx.createCanvas()` 只在 `getScreenCanvas()` 调用一次并缓存；能力探测只能用 `wx.createOffscreenCanvas()`。
+1. **只有一个上屏画布**：`wx.createCanvas()` 只在 `getScreenCanvas()` 调用一次并缓存，之后的调用只会得到离屏画布。能力探测优先用 `wx.createOffscreenCanvas()`；仅在上屏画布**已解析之后**、且调用方显式 opt-in 时，才可按 [ADR-0007](./docs/adr/0007-capability-probe-fallback.md) 回退到第二次 `createCanvas()`。
 2. **对象身份不变**：canvas / image 永远是 `wx` 返回的那个对象。禁止 `new Proxy` 包装、`Object.setPrototypeOf`、返回克隆体。用 `Object.defineProperty` + `Symbol.hasInstance` 注册表。
 3. **默认零全局污染**：只有 `installGlobals()` 写 `globalThis`，必须显式调用、必须可逆；三方代码只能经 `getActiveScope()` 拿 shim。
 4. **`three` 零运行时依赖**：`src/` 不得 `import 'three'`；它是 optional peer + external。
@@ -76,7 +76,7 @@ Windows 临时目录权限问题：`TMP="$PWD/.tmp/vitest" TEMP="$PWD/.tmp/vites
 - 「在 `globalThis` 上补个 `window` 就好了」→ 用 `MiniThreeScope`
 - 「正则把 `window` 全替换」→ 用 Babel 作用域分析
 - 「包一层 Proxy / 改原型」→ 就地 `defineProperty`
-- 「探测时调 `wx.createCanvas()`」→ 用 `createOffscreenCanvas`
+- 「探测时先调 `wx.createCanvas()`」→ 用 `createOffscreenCanvas`（`allowCanvasFallback` 只在 `getScreenCanvas()` 之后才有意义）
 - 「把 three 打进适配层」→ 保持 external peer
 - 「猴补丁 `WebGLRenderer.render` 清深度」→ 应用层显式 `renderer.clearDepth()`
 

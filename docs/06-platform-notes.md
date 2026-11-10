@@ -46,6 +46,8 @@ const { startScene } = await import('./scene.js'); // scene.js 里才 import thr
 | 重复调用 `wx.createCanvas()` 导致黑屏 | 第二个画布是离屏的，不显示 | `getScreenCanvas()` 缓存；额外画布一律走 `createOffscreenCanvas` / `runtime.createCanvas()` |
 | WebGPU 相关 API 报错 | 小游戏无 WebGPU | 插件 `webgpu` 策略；默认告警 |
 | three 版本升级后控件失效 | r170+ 用 `three/addons/`，`outputColorSpace` 取代 `outputEncoding` | 示例与 `rendererHints` 使用新 API；插件 include 覆盖两种路径 |
+| `img.onload` / `addEventListener('load')` 永不触发，纹理靠超时兜底 | 图片 shim 只建了「合成事件 → 用户回调」这条边，没有「原生 load → 合成事件」 | `createImageFactory` 在 patch 前抓原生 `onload`/`onerror` 描述符并挂转发器；宿主不可拦截时 `warnOnce` 告警（`image has no writable onload/onerror`） |
+| `canvas.onpointerdown = fn` 之类行内处理器不触发 | 事件方法被绑定到内部对象，`this['on'+type]` 查找落空 | `patchEventTarget` 把宿主对象作为行内处理器宿主传入 |
 
 深度缓冲补丁（应用层显式启用）：
 
@@ -82,6 +84,7 @@ mini-three-adapter capability report
   platform            : wechat-game
   baseLibraryVersion  : unknown
   WebGL2 / WebGL1     : true / true
+  WebGL2 source       : probe
   offscreenCanvas     : true
   worker / wasm       : false / true (brotli: true)
   nativeImage         : true
@@ -89,9 +92,11 @@ mini-three-adapter capability report
   getWindowInfo       : true (resize events: true)
 ```
 
-- `probeContext()` 用 `wx.createOffscreenCanvas({type:'webgl2'})` 探测并主动 `WEBGL_lose_context` 释放，**不会**占用上屏画布。
-- 探测结果可用 `capabilities` 选项覆盖（用于测试或已知机型分级）。
-- `webgl2: false` 时会告警，但**不会静默降级到 WebGL1**——three ≥ r163 本来就要求 WebGL2，静默降级只会延后报错。
+- `probeContext()` 优先用 `wx.createOffscreenCanvas({type:'webgl2'})` 探测并主动 `WEBGL_lose_context` 释放，**不会**占用上屏画布。
+- 离屏不可用（或离屏不支持 WebGL2）时，小游戏绑定会回退到**第二次** `wx.createCanvas()` 实测——此时上屏画布已解析，新画布必然离屏。小程序绑定不做这个回退：它的画布节点来自选择器查询，直接探测会用默认属性抢先创建真实上下文。决策见 [ADR-0007](./adr/0007-capability-probe-fallback.md)。
+- 两者都无法判定时返回 `undefined`，`webgl2` 按基础库版本推断，`webgl2Source` 标为 `'inferred'` 并告警一次。**「探测不到」不等于「不支持」**。
+- 探测结果可用 `capabilities` 选项覆盖（用于测试或已知机型分级），此时 `webgl2Source` 为 `'override'`。
+- 实测 `webgl2: false` 时会告警，但**不会静默降级到 WebGL1**——three ≥ r163 本来就要求 WebGL2，静默降级只会延后报错。
 - `wx.createImage` 不存在时回退 `OffscreenCanvas.createImage()`；`triggerGC` 存在与否会影响 image 创建路径的选择。
 
 ## 6.7 诊断命令 / 日志

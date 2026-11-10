@@ -4,6 +4,39 @@
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-10
+
+适配层在小游戏真机上暴露的五个缺陷修复，其中三个 P0 会直接导致构建产物报错或纹理静默丢失。
+
+### Added
+
+- 新增 `tests/image-events.test.ts`（图片原生事件桥接）与 `tests/capabilities.test.ts`（探测回退与 `webgl2Source`）。
+- 新增 [ADR-0007](./docs/adr/0007-capability-probe-fallback.md)：能力探测的离屏优先 / 主画布回退 / 无法判定三态策略。
+- `docs/05` 新增「按报错文案反查」表，`docs/07` 新增常见报错对照（含 `Class constructor ... cannot be invoked without 'new'` 全文）。
+
+### Changed
+
+- `Capabilities` 新增可选字段 `webgl2Source`（`'probe' | 'inferred' | 'override'`），能力报告同步展示来源，见 [ADR-0007](./docs/adr/0007-capability-probe-fallback.md)。
+- `AGENTS.md` 不变量 1 的措辞调整：能力探测默认只用 `wx.createOffscreenCanvas()`，回退到 `createCanvas()` 必须在上屏画布**已解析之后**且显式 opt-in。
+
+### Fixed
+
+- **构建期：`new` 表达式丢失括号（P0）**。`new TextDecoder()` / `new Blob()` / `new OffscreenCanvas()` 曾被改写成 `new __m3().TextDecoder()`，被解析成 `(new __m3()).TextDecoder()`，运行期报 `Class constructor ... cannot be invoked without 'new'`；任何走 `GLTFLoader.parse()` 的项目会在第一行崩溃。现在只给 callee 成员链根加括号：`new (__m3().TextDecoder)()`。
+- **构建期：对象简写属性产出语法错误（P0）**。`{ TextDecoder }` 曾被改写成 `{ __m3().TextDecoder }`，产物直接 `SyntaxError`。简写属性的 key/value 是两个区间相同的独立节点，原来的引用相等判断失效；现在改为区间比较并把简写展开成 `{ TextDecoder: (__m3().TextDecoder) }`。
+- **运行期：图片 `onload` / `onerror` 永不触发（P0）**。`createImageFactory` 把用户回调存进闭包，却没有把转发器挂到底层 `wx` 图片的原生槽位，导致 `ImageLoader` 两条路径（`addEventListener('load')` 与 `onload`）一起死掉、`decode()` 永不 settle、纹理静默丢失只能靠超时。现在 patch 前先抓原生描述符并挂上转发器，用户回调只登记；宿主无法拦截时用 `warnOnce` 明确告警。
+- **运行期：`patchEventTarget` 上的 `onxxx` 行内处理器不触发**。事件方法被绑定到内部对象，`this['on' + type]` 查找永远落在内部对象上，因此 `canvas.onpointerdown = fn`、`img.onload = fn` 这类写法一直无效。现在把宿主对象作为行内处理器宿主传入。
+- **能力探测：把「探测不到」当成「不支持」（P1）**。`probeContext` 在缺少 `wx.createOffscreenCanvas` 时直接返回 `false`，导致支持 WebGL2 的模拟器/老基础库被误判。现在返回 `boolean | undefined`，并在上屏画布已解析后显式回退到第二次 `createCanvas()` 实测；仍无法判定才按基础库版本推断。
+- **构建期：`typeof` 保护在 scope 未初始化时失效（P2）**。`typeof document` 曾因 `emptyScope` 抛错而崩溃，把本应永不抛错的运算符变成故障点。现在改写成 `typeof (__m3Has() ? __m3().document : undefined)`，runtime 未创建时得到 `'undefined'`，真实访问仍保留可读报错。
+
+### Tests
+
+- 用例从 32 增至 55：新增 `new` 表达式 / 对象简写 / `typeof` 守卫的改写边界用例，图片原生事件桥接（`onload`、`addEventListener`、`decode`、告警去重）用例，以及能力探测回退与 `webgl2Source` 用例。
+- 对真实 `three@0.187` 产物验证：`three.module.js` 改写 16 处、`GLTFLoader.js` 改写 9 处，`new __m3().` 残留 0、简写语法错误残留 0，产物经 esbuild 解析通过。
+
+## [0.1.1] - 2026-11-08
+
+发布工程化：补齐 npm 元数据与发布检查流程，源码无行为变更。
+
 ### Added
 
 - 发布准备：`package.json` 补充顶层 `types`、`./package.json` 导出、`publishConfig.access: public`。

@@ -54,7 +54,7 @@ src/index.ts               汇总导出
 
 1. `createWeChatGameRuntime(options)` → `createWeChatGameBinding()`。
 2. `getScreenCanvas(wx)` 按 `options.canvas` → `GameGlobal.screencanvas` → `globalThis.canvas` → `wx.createCanvas()` 的顺序取**唯一**上屏画布，并做模块级缓存。
-3. `detectCapabilities()` 只用 `wx.createOffscreenCanvas()` 探测 WebGL2，**绝不调用 `wx.createCanvas()`**。
+3. `detectCapabilities()` 优先用 `wx.createOffscreenCanvas()` 探测 WebGL2；上屏画布已解析后允许显式回退到第二次 `wx.createCanvas()`（[ADR-0007](./adr/0007-capability-probe-fallback.md)）。探测不到时返回 `undefined`，按基础库版本推断并在 `webgl2Source` 标明，**绝不把「探测不到」当成 `false`**。
 4. `createDocument()` 建出 `document` / `body` / `screen` 等容器；`createElement('canvas')` 走 `webgl2` 离屏画布，失败降级 `2d` 并告警。
 5. `patchCanvas()` 在原对象上定义 `style` / `clientWidth` / `getBoundingClientRect` / `getContext` / EventTarget 方法，并注册到 `HTMLCanvasElementShim` 的 `WeakSet`。
 6. 组装 `MiniThreeScope`（polyfill 构造器 + 领域对象 + live getter），`setActiveScope(scope)` 让 `__m3()` 生效。
@@ -114,7 +114,7 @@ sequenceDiagram
 | 情况 | 行为 |
 | --- | --- |
 | 没有 `wx`（Node/浏览器） | `createWeChatGameRuntime({ wx })` 可注入；`browser` 平台用真实 DOM |
-| `createOffscreenCanvas` 不可用 | 能力探测返回 false；`createCanvas()` 抛明确错误；文档提示升级基础库 |
+| `createOffscreenCanvas` 不可用 | 探测回退到主画布类型；仍不可判定则标记 `webgl2Source: 'inferred'`；`createCanvas()` 抛明确错误；文档提示升级基础库 |
 | WebGL2 不可用 | `diagnostics.warn` + 能力报告；不静默降级到 WebGL1（three ≥ r163 也无法工作） |
 | `wx.createImage` 缺失 | 回退 `OffscreenCanvas.createImage()`，再失败抛可操作错误 |
 | `typeof window` 在 runtime 之前被读取 | `emptyScope` 让 `typeof` 返回 `'object'`，真正取属性时抛带指引的错误 |

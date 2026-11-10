@@ -21,12 +21,21 @@ flowchart TD
     C --> D["traverse: ReferencedIdentifier"]
     D --> E{"name ∈ DEFAULT_GLOBAL_NAMES?"}
     E -->|否| D
-    E -->|是| F{"非计算属性键 / 成员属性?"}
-    F -->|是| D
-    F -->|否| G{"path.scope.hasBinding(name, true)?"}
+    E -->|是| F{"简写属性 { X }?"}
+    F -->|是| H1["展开：X: (__m3().X)"]
+    F -->|否| F2{"非计算属性键 / 成员属性?"}
+    F2 -->|是| D
+    F2 -->|否| G{"path.scope.hasBinding(name, true)?"}
     G -->|是（局部/import/参数）| D
-    G -->|否（真正的自由全局）| H["MagicString.overwrite<br/>name → __m3().name"]
-    H --> I["prepend:<br/>import { getActiveScope as __m3 } from 'mini-three-adapter/scope'"]
+    G -->|否（真正的自由全局）| G2{"typeof 的操作数?"}
+    G2 -->|是| H2["(__m3Has() ? __m3().X : undefined)"]
+    G2 -->|否| G3{"new 的 callee 成员链根?"}
+    G3 -->|是| H3["(__m3().X)，由外层 new 结合"]
+    G3 -->|否| H4["name → __m3().name"]
+    H1 --> I["prepend:<br/>import { getActiveScope as __m3 } from 'mini-three-adapter/scope'<br/>（用到 typeof 守卫时追加 hasActiveScope as __m3Has）"]
+    H2 --> I
+    H3 --> I
+    H4 --> I
     I --> J["返回 { code, map }"]
 ```
 
@@ -38,9 +47,17 @@ flowchart TD
 | `const o = { window: 1 }` | 非计算属性键 → 不改写 |
 | `foo.window` | 成员属性 → 不改写 |
 | `import { window as w } from 'x'` | import 绑定 → 不改写 |
+| `new TextDecoder()` | 改写成 `new (__m3().TextDecoder)()`。**括号不能省**：`new __m3().TextDecoder()` 会被解析成 `(new __m3()).TextDecoder()`，于是 scope 对象被当成构造函数、类被普通调用，报 `Class constructor ... cannot be invoked without 'new'` |
+| `new OffscreenCanvas(1, 1).getContext('2d')` | 只给链根加括号 → `new (__m3().OffscreenCanvas)(1, 1).getContext('2d')`，语义不变 |
+| `const o = { TextDecoder }` | 展开成 `{ TextDecoder: (__m3().TextDecoder) }`。简写属性的 key 与 value 是两个**区间相同**的独立节点，原地替换会产出 `{ __m3().TextDecoder }` 这种**语法错误**，因此必须展开 |
 | `typeof window !== 'undefined'` | 改写成 `typeof __m3().window !== 'undefined'`，结果 `'object'`，three 走浏览器分支（正是我们想要的） |
+| `typeof document !== 'undefined'` | 改写成 `typeof (__m3Has() ? __m3().document : undefined)`：runtime 未创建时得到 `'undefined'` 而不是抛错；runtime 存在时照常返回真实对象 |
 | `URL.createObjectURL(blob)` | `URL` 与 `Blob` 都改写 |
 | 解析失败 | 记录 `parseFailures` + `ctx.warn`，**原样返回**，绝不产出半改写代码 |
+
+> 为什么只有 `new` 需要括号：`typeof`、`in`、`delete`、`?.`、`instanceof` 右侧等位置，`__m3().X` 的优先级都足够高；唯一优先级倒挂的是 `new`。
+
+> 为什么 `typeof` 要单独守卫：`typeof` 是本应永不抛错的运算符，而 `emptyScope` 对未初始化的 `document` 等键会抛出可读错误。不加守卫时，库顶层的 `const isBrowser = typeof document !== 'undefined'` 会在 runtime 创建之前直接崩掉，而报错指向适配层，极易误判为「初始化顺序写错」。守卫只加在 `window/self/globalThis` 之外的名字上，因为这三个在 `emptyScope` 里恒指向自身。
 
 `globalThis` **故意不在**默认清单里：three 会用它挂调试钩子（`__THREE_DEVTOOLS__` 等），改写会破坏这些逻辑。
 
@@ -144,3 +161,14 @@ console.log(plugin.api.report());
 | 解析报错 | `report.parseFailures`，考虑给 `rewrite` 加语法插件或 `exclude` 该模块 |
 | worker/wasm 没进包 | `report.assetReferences` / `missingAssets`；补 `roots` |
 | 包体过大 | 参照 `gameJsonSuggestion` 分包；`manualChunks` 见 [`examples/wechat-minigame/vite.config.ts`](../examples/wechat-minigame/vite.config.ts) |
+
+### 按报错文案反查
+
+| 报错 | 含义 | 处理 |
+| --- | --- | --- |
+| `Class constructor xxx cannot be invoked without 'new'`（栈顶常是 `GLTFLoader.js:444`） | 改写产物把 `new TextDecoder()` 变成了 `(new __m3()).TextDecoder()` | 升级到含本修复的版本；宿主侧临时补丁见下 |
+| `SyntaxError: Unexpected token '.'`，指向 `{ __m3().xxx }` | 对象简写属性被原地替换 | 同上 |
+| `Scoped global "document" was read before a runtime was created` | 真的在 runtime 之前读了 `document`（不是 `typeof`） | 按 [`docs/07`](./07-integration-guide.md#74-入口改造最关键的一步) 调整入口顺序 |
+| `new __m3().X` 残留 | 适配层版本过旧 | 检查 `dist` 里的重写器版本，清理缓存后重建 |
+
+临时规避（仅用于旧版本）：在适配层插件**之后**（`enforce: 'post'`）跑一段产物级正则，把 `new __m3().X()` 改成 `new (__m3().X)()`。它依赖访问器名与「空参数」两个特征，适配层改了默认 `accessor` 就会静默失效，因此修复到位后应当删除。
