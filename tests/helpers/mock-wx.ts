@@ -7,10 +7,15 @@ export interface TouchHandlers {
   cancel?: (event: WxTouchEvent) => void;
 }
 
+export interface MockImage extends WxImage {
+  /** Simulate the host finishing a load / failing one, like the real wx loader. */
+  __emit(type: 'load' | 'error', payload?: unknown): void;
+}
+
 export interface MockWx extends WxLike {
   __touch: TouchHandlers;
   __resize: Set<() => void>;
-  __images: WxImage[];
+  __images: MockImage[];
   __canvases: WxCanvas[];
   __setSize(width: number, height: number): void;
 }
@@ -34,15 +39,40 @@ function fakeCanvas(width = 300, height = 150): WxCanvas {
       return null;
     },
     toDataURL: () => 'data:image/png;base64,AAAA',
-    createImage: () => ({ width: 0, height: 0, src: '', onload: null, onerror: null }),
+    createImage: () => fakeImage(),
   };
   return canvas;
+}
+
+/**
+ * Real `wx.createImage()` exposes `onload`/`onerror` as accessors that store the
+ * callback — that is exactly why redefining them as data properties used to cut
+ * the native load event off. The mock mirrors that shape so the bridge is
+ * actually exercised.
+ */
+function fakeImage(): MockImage {
+  let load: ((event?: unknown) => void) | null = null;
+  let error: ((event?: unknown) => void) | null = null;
+  const img = {
+    width: 0,
+    height: 0,
+    src: '',
+    get onload() { return load; },
+    set onload(next: ((event?: unknown) => void) | null) { load = next ?? null; },
+    get onerror() { return error; },
+    set onerror(next: ((event?: unknown) => void) | null) { error = next ?? null; },
+    __emit(type: 'load' | 'error', payload?: unknown) {
+      const handler = type === 'load' ? load : error;
+      handler?.(payload ?? { type });
+    },
+  };
+  return img as unknown as MockImage;
 }
 
 export function createMockWx(): MockWx {
   const touch: TouchHandlers = {};
   const resize = new Set<() => void>();
-  const images: WxImage[] = [];
+  const images: MockImage[] = [];
   const canvases: WxCanvas[] = [];
   let width = 375;
   let height = 667;
@@ -63,7 +93,7 @@ export function createMockWx(): MockWx {
       return c;
     },
     createImage() {
-      const img: WxImage = { width: 0, height: 0, src: '', onload: null, onerror: null };
+      const img = fakeImage();
       images.push(img);
       return img;
     },

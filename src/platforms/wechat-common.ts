@@ -68,23 +68,62 @@ export function watchWxVisibility(wx: WxLike, handler: (visible: boolean) => voi
   };
 }
 
+export interface ProbeContextOptions {
+  /**
+   * Allow falling back to a *second* `wx.createCanvas()` when the offscreen
+   * probe cannot answer. This is only safe AFTER the on-screen canvas has been
+   * taken, because WeChat then guarantees every later `createCanvas()` returns
+   * an off-screen canvas. Callers must opt in explicitly (see ADR-0007).
+   */
+  allowCanvasFallback?: boolean;
+}
+
+/** Try one canvas; returns `false` when the context is simply unavailable. */
+function probeRawContext(raw: WxCanvas, type: ContextType): boolean {
+  const ctx = raw.getContext(type);
+  if (!ctx) return false;
+  // Release GPU resources as soon as possible on constrained devices.
+  const lose = (ctx as { getExtension?: (name: string) => { loseContext?: () => void } | null }).getExtension;
+  lose?.call(ctx, 'WEBGL_lose_context')?.loseContext?.();
+  return true;
+}
+
 /**
- * WebGL2 capability probe. Uses `createOffscreenCanvas` so the first
- * `wx.createCanvas()` call still produces the on-screen canvas.
+ * WebGL2 / WebGL1 capability probe.
+ *
+ * The offscreen canvas is preferred because it has no side effects on the
+ * on-screen canvas. But offscreen support is NOT the same capability as
+ * on-screen support: a base library can render WebGL2 on the screen canvas while
+ * `createOffscreenCanvas` is missing or cannot create a WebGL2 context. So when
+ * the offscreen answer is missing or negative and the caller allows it, we ask
+ * the real canvas type as well.
+ *
+ * Returns `undefined` when the host cannot answer — callers must treat that as
+ * "unknown", never as "unsupported".
  */
-export function probeContext(wx: WxLike, type: ContextType): boolean {
-  if (typeof wx.createOffscreenCanvas !== 'function') return false;
-  try {
-    const off = wx.createOffscreenCanvas({ width: 1, height: 1, type });
-    const ctx = off.getContext(type);
-    if (!ctx) return false;
-    // Release GPU resources as soon as possible on constrained devices.
-    const lose = (ctx as { getExtension?: (name: string) => { loseContext?: () => void } | null }).getExtension;
-    lose?.call(ctx, 'WEBGL_lose_context')?.loseContext?.();
-    return true;
-  } catch {
-    return false;
+export function probeContext(
+  wx: WxLike,
+  type: ContextType,
+  options: ProbeContextOptions = {},
+): boolean | undefined {
+  let offscreen: boolean | undefined;
+  if (typeof wx.createOffscreenCanvas === 'function') {
+    try {
+      offscreen = probeRawContext(wx.createOffscreenCanvas({ width: 1, height: 1, type }), type);
+    } catch {
+      // Some base libraries expose the API but throw for webgl2; keep probing.
+      offscreen = undefined;
+    }
   }
+  if (offscreen === true) return true;
+  if (options.allowCanvasFallback && typeof wx.createCanvas === 'function') {
+    try {
+      return probeRawContext(wx.createCanvas(), type);
+    } catch {
+      return undefined;
+    }
+  }
+  return offscreen;
 }
 
 export function createOffscreenCanvasRaw(

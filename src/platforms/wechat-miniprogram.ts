@@ -78,6 +78,10 @@ export async function createWeChatMiniProgramBinding(
   const rawCanvas = node;
   const capabilities = detectCapabilities(wx, 'wechat-miniprogram', {
     overrides: options.capabilities,
+    diagnostics,
+    // No createCanvas() fallback here: the canvas node comes from a selector
+    // query and probing it directly would create the real GL context with
+    // default attributes before three.js asks for its own.
     probeContext: (type) => probeContext(wx, type),
   });
   const imageFactory = createWechatImageFactory(wx, diagnostics);

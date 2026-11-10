@@ -1,7 +1,7 @@
 /** Image / ImageData / HTMLImageElement shims built on wx.createImage. */
 import type { WxImage, WxLike } from '../platforms/wx-types';
 import { MiniURL } from '../polyfills/blob-url';
-import { MiniEvent } from '../polyfills/event';
+import { MiniCustomEvent } from '../polyfills/event';
 import {
   HTMLImageElementShim,
   HTMLElementShim,
@@ -87,6 +87,12 @@ export function createImageFactory(wx: WxLike, diagnostics?: Diagnostics): Image
     if (width != null) raw.width = width;
     if (height != null) raw.height = height;
 
+    // Capture the NATIVE callback slots before anything shadows them. Once
+    // `onload`/`onerror` are redefined as accessors the native registration
+    // entry point is gone and no load event can ever reach us again.
+    const nativeLoad = findDescriptor(raw, 'onload');
+    const nativeError = findDescriptor(raw, 'onerror');
+
     HTMLImageElementShim.__instances.add(raw);
     HTMLElementShim.__instances.add(raw);
     patchElement(raw, {
@@ -115,24 +121,86 @@ export function createImageFactory(wx: WxLike, diagnostics?: Diagnostics): Image
       },
     });
 
-    // Bridge wx's onload/onerror callbacks into the EventTarget API.
+    /**
+     * Event flow (the direction matters):
+     *
+     *   native wx load  ->  forward()  ->  dispatch(MiniEvent)  ->  listeners
+     *                                                            \-> inline `onload`
+     *
+     * `dispatchEvent` already invokes the inline `on<type>` handler, so the
+     * forwarder must NOT call the user handler itself or every callback fires
+     * twice (and re-dispatching from inside an inline handler would recurse).
+     */
+    const handlers: Record<'load' | 'error', ((event?: unknown) => void) | undefined> = {
+      load: undefined,
+      error: undefined,
+    };
+    let settled = false;
+
     const dispatch = (event: unknown): void => {
       (raw as unknown as { dispatchEvent(e: unknown): void }).dispatchEvent(event);
     };
-    for (const [prop, eventName] of [['onload', 'load'], ['onerror', 'error']] as const) {
-      let handler: ((event?: unknown) => void) | null | undefined;
-      Object.defineProperty(raw, prop, {
+
+    const makeForwarder = (eventName: 'load' | 'error') => (nativeEvent?: unknown): void => {
+      if (eventName === 'load') settled = true;
+      dispatch(new MiniCustomEvent(eventName, { detail: nativeEvent }));
+    };
+
+    /** Hook the forwarder into the native slot: accessor setter, then data property. */
+    const attachNative = (
+      native: PropertyDescriptor | undefined,
+      eventName: 'load' | 'error',
+    ): boolean => {
+      const forward = makeForwarder(eventName);
+      try {
+        if (native && typeof native.set === 'function') {
+          native.set.call(raw, forward);
+          return true;
+        }
+        if (native && native.writable) {
+          Object.defineProperty(raw, `on${eventName}`, { ...native, value: forward });
+          return true;
+        }
+      } catch {
+        /* fall through to the warning below */
+      }
+      return false;
+    };
+
+    const loadAttached = attachNative(nativeLoad, 'load');
+    const errorAttached = attachNative(nativeError, 'error');
+    if (!loadAttached || !errorAttached) {
+      diagnostics?.warnOnce(
+        'image-native-events',
+        `image has no writable onload/onerror (load:${loadAttached} error:${errorAttached}); ` +
+          `'load'/'error' will never fire and texture loads will time out`,
+      );
+    }
+
+    // User-facing accessors only REGISTER a callback; delivery happens above.
+    // A host that freezes `onload` cannot be intercepted at all — the warning
+    // above already covers that case, so never throw out of createImage().
+    for (const eventName of ['load', 'error'] as const) {
+      try {
+        Object.defineProperty(raw, `on${eventName}`, {
+          configurable: true,
+          enumerable: true,
+          get: () => handlers[eventName],
+          set: (next: ((event?: unknown) => void) | null) => {
+            handlers[eventName] = typeof next === 'function' ? next : undefined;
+          },
+        });
+      } catch {
+        /* non-configurable host property: keep the native one */
+      }
+    }
+
+    // Only help feature detection when the host has no opinion of its own.
+    if (!findDescriptor(raw, 'complete')) {
+      Object.defineProperty(raw, 'complete', {
         configurable: true,
         enumerable: true,
-        get: () => handler,
-        set: (next: ((event?: unknown) => void) | null) => {
-          // wx reads `img.onload` when loading finishes; that call now also
-          // reaches listeners registered through addEventListener('load').
-          handler = (e?: unknown) => {
-            dispatch(new MiniEvent(eventName));
-            next?.(e);
-          };
-        },
+        get: () => settled,
       });
     }
 
@@ -140,10 +208,10 @@ export function createImageFactory(wx: WxLike, diagnostics?: Diagnostics): Image
     Object.defineProperty(raw, 'decode', {
       value: () => new Promise<void>((resolve, reject) => {
         if (raw.complete) return resolve();
-        const previousLoad = raw.onload;
-        const previousError = raw.onerror;
-        raw.onload = () => { previousLoad?.(); resolve(); };
-        raw.onerror = (e) => { previousError?.(e); reject(e); };
+        const previousLoad = handlers.load;
+        const previousError = handlers.error;
+        handlers.load = (e) => { previousLoad?.(e); resolve(); };
+        handlers.error = (e) => { previousError?.(e); reject(e); };
       }),
       configurable: true,
     });

@@ -54,13 +54,19 @@ export function capabilityReport(caps: Capabilities): string {
     `  platform            : ${caps.platform}`,
     `  baseLibraryVersion  : ${caps.baseLibraryVersion || 'unknown'}`,
     `  WebGL2 / WebGL1     : ${caps.webgl2} / ${caps.webgl1}`,
+    `  WebGL2 source       : ${caps.webgl2Source ?? 'unknown'}`,
     `  offscreenCanvas     : ${caps.offscreenCanvas}`,
     `  worker / wasm       : ${caps.worker} / ${caps.wasm} (brotli: ${caps.brotliWasm})`,
     `  nativeImage         : ${caps.nativeImage}`,
     `  triggerGC           : ${caps.triggerGC}`,
     `  getWindowInfo       : ${caps.getWindowInfo} (resize events: ${caps.windowResizeEvent})`,
   ];
-  if (!caps.webgl2) {
+  if (!caps.webgl2 && caps.webgl2Source === 'inferred') {
+    lines.push(
+      '  !! WebGL2 was NOT probed, only inferred from the base library version:',
+    );
+    lines.push('     verify with an explicit capabilities.webgl2 override before downgrading.');
+  } else if (!caps.webgl2) {
     lines.push('  !! WebGL2 unavailable: three.js >= r163 requires WebGL2.');
   }
   return lines.join('\n');

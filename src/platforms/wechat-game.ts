@@ -62,7 +62,10 @@ export function createWeChatGameBinding(options: WeChatGameOptions = {}): Platfo
   const rawCanvas = getScreenCanvas(wx, options.canvas);
   const capabilities = detectCapabilities(wx, 'wechat-game', {
     overrides: options.capabilities,
-    probeContext: (type) => probeContext(wx, type),
+    diagnostics,
+    // The on-screen canvas is already resolved above, so a second
+    // createCanvas() is guaranteed to be off-screen and safe to probe.
+    probeContext: (type) => probeContext(wx, type, { allowCanvasFallback: true }),
   });
   const imageFactory = createWechatImageFactory(wx, diagnostics);
   const raf = createRafPair(wx, rawCanvas);

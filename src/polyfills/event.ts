@@ -174,6 +174,16 @@ interface ListenerRecord {
  */
 export class MiniEventTarget implements EventTargetLike {
   private readonly listeners = new Map<string, Set<ListenerRecord>>();
+  /**
+   * When the EventTarget methods are patched onto a *different* object
+   * (`patchEventTarget`), inline `onclick` / `onload` style handlers live on
+   * that object, not here. Without this the inline path silently never fires.
+   */
+  private readonly inlineHost: object | undefined;
+
+  constructor(inlineHost?: object) {
+    this.inlineHost = inlineHost;
+  }
 
   addEventListener(
     type: string,
@@ -224,8 +234,9 @@ export class MiniEventTarget implements EventTargetLike {
       if (set.size === 0) this.listeners.delete(ev.type);
     }
 
-    const inline = (this as unknown as Record<string, unknown>)['on' + ev.type];
-    if (typeof inline === 'function') (inline as (e: unknown) => void).call(this, ev);
+    const host = (this.inlineHost ?? this) as Record<string, unknown>;
+    const inline = host['on' + ev.type];
+    if (typeof inline === 'function') (inline as (e: unknown) => void).call(host, ev);
 
     ev.currentTarget = null;
     return !ev.defaultPrevented;
@@ -242,7 +253,9 @@ export function patchEventTarget<T extends object>(target: T): T & MiniEventTarg
   // The listener map is private state on a dedicated MiniEventTarget instance;
   // methods are bound to it and attached to `target`. Object identity is kept
   // intact, which matters because WeChat keys canvas metadata by identity.
-  const own = new MiniEventTarget();
+  // `target` is passed as the inline-handler host so `canvas.onpointerdown = fn`
+  // and `img.onload = fn` actually fire.
+  const own = new MiniEventTarget(target);
   const methods = ['addEventListener', 'removeEventListener', 'dispatchEvent', 'clearEventListeners'];
   for (const key of methods) {
     const fn = (own as unknown as Record<string, unknown>)[key];

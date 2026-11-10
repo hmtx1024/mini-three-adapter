@@ -129,6 +129,13 @@ export interface Capabilities {
   platform: 'wechat-game' | 'wechat-miniprogram' | 'browser' | 'unknown';
   /** `Canvas.getContext('webgl2')` is usable. three >= r163 requires WebGL2. */
   webgl2: boolean;
+  /**
+   * How `webgl2` was decided: `probe` = actually tried a context,
+   * `inferred` = host could not be probed, value comes from the base library
+   * version, `override` = supplied by the caller. A `false` from `inferred` is
+   * a guess, not a measurement.
+   */
+  webgl2Source?: 'probe' | 'inferred' | 'override';
   webgl1: boolean;
   offscreenCanvas: boolean;
   worker: boolean;

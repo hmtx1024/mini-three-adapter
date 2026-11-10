@@ -72,3 +72,71 @@ describe('rewriteGlobals', () => {
     expect(DEFAULT_GLOBAL_NAMES).not.toContain('globalThis');
   });
 });
+
+/** Drop the injected import so the output can be fed to the Function constructor. */
+function parsable(code: string): void {
+  const body = rewrite(code).replace(/^import .*\n/, '');
+  expect(() => new Function(body)).not.toThrow(SyntaxError);
+}
+
+describe('new expression callee (BUG-1)', () => {
+  it('parenthesises the class so it is still constructed', () => {
+    expect(rewrite('const d = new TextDecoder();')).toContain('new (__m3().TextDecoder)()');
+    expect(rewrite('const c = new AbortController();')).toContain('new (__m3().AbortController)()');
+  });
+
+  it('wraps only the root of a member chain', () => {
+    expect(rewrite("new window.Event('tap')")).toContain("new (__m3().window).Event('tap')");
+    expect(rewrite("new window.window.Event('x')")).toContain("new (__m3().window).window.Event('x')");
+  });
+
+  it('keeps `new X().method()` semantics', () => {
+    const out = rewrite("new OffscreenCanvas(1, 1).getContext('2d')");
+    expect(out).toContain("new (__m3().OffscreenCanvas)(1, 1).getContext('2d')");
+    expect(() => new Function(out.replace(/^import .*\n/, ''))).not.toThrow(SyntaxError);
+  });
+
+  it('does not disturb non-constructing uses', () => {
+    expect(rewrite('class A extends TextDecoder {}')).toContain('extends __m3().TextDecoder');
+    expect(rewrite('TextDecoder.length')).toContain('__m3().TextDecoder.length');
+  });
+});
+
+describe('shorthand object properties (BUG-2)', () => {
+  it('expands into an explicit key/value pair', () => {
+    expect(rewrite('const o = { TextDecoder };')).toContain('{ TextDecoder: (__m3().TextDecoder) }');
+    expect(rewrite('const o = { window };')).toContain('{ window: (__m3().window) }');
+  });
+
+  it('leaves the expansion parseable', () => {
+    parsable('const o = { window, document, fetch };');
+  });
+
+  it('does not rewrite non-shorthand keys or destructuring patterns', () => {
+    expect(rewriteGlobals('const o = { TextDecoder: 1 };', 'x.js')).toBeNull();
+    expect(rewriteGlobals('const { TextDecoder } = obj;', 'x.js')).toBeNull();
+  });
+});
+
+describe('typeof guard (BUG-5)', () => {
+  it('turns a pre-runtime typeof into "undefined" instead of throwing', () => {
+    const out = rewrite("if (typeof document !== 'undefined') { init(); }");
+    expect(out).toContain('typeof (__m3Has() ? __m3().document : undefined)');
+    expect(out).toContain('hasActiveScope as __m3Has');
+  });
+
+  it('needs no guard for window/self/globalThis', () => {
+    const out = rewrite("if (typeof window !== 'undefined') { tick(); }");
+    expect(out).toContain('typeof __m3().window');
+    expect(out).not.toContain('__m3Has');
+  });
+
+  it('keeps the import line unchanged when no guard is emitted', () => {
+    const out = rewrite('export const x = window.innerWidth;');
+    expect(out.startsWith("import { getActiveScope as __m3 } from 'mini-three-adapter/scope';")).toBe(true);
+  });
+
+  it('stays parseable', () => {
+    parsable('if (typeof document === "undefined") {}');
+  });
+});

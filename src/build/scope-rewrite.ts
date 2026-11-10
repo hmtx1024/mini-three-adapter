@@ -65,20 +65,88 @@ export interface RewriteFailure {
   error: string;
 }
 
-export const SCOPE_IMPORT = (accessor: string, module: string): string =>
-  `import { getActiveScope as ${accessor} } from '${module}';\n`;
+export const SCOPE_IMPORT = (
+  accessor: string,
+  module: string,
+  extraSpecifiers: readonly string[] = [],
+): string => {
+  const specifiers = [`getActiveScope as ${accessor}`, ...extraSpecifiers].join(', ');
+  return `import { ${specifiers} } from '${module}';\n`;
+};
+
+/**
+ * Reference or range equality. `@babel/parser` emits TWO distinct `Identifier`
+ * nodes with identical `[start, end]` for a shorthand property (`{ X }`: one for
+ * `key`, one for `value`), so reference equality alone is not enough to tell
+ * "this identifier is an object key".
+ */
+function sameNode(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  const x = a as { start?: number | null; end?: number | null } | null | undefined;
+  const y = b as { start?: number | null; end?: number | null } | null | undefined;
+  return Boolean(x && y && x.start != null && x.start === y.start && x.end === y.end);
+}
 
 function isNonComputedKey(path: NodePath): boolean {
   const parent = path.parentPath;
   if (!parent) return false;
   const self: unknown = path.node;
-  if (parent.isObjectProperty() && !parent.node.computed && (parent.node.key as unknown) === self) return true;
-  if (parent.isObjectMethod() && !parent.node.computed && (parent.node.key as unknown) === self) return true;
-  if (parent.isClassProperty() && !parent.node.computed && (parent.node.key as unknown) === self) return true;
-  if (parent.isClassMethod() && !parent.node.computed && (parent.node.key as unknown) === self) return true;
-  if (parent.isMemberExpression() && !parent.node.computed && (parent.node.property as unknown) === self) return true;
+  if (parent.isObjectProperty() && !parent.node.computed && sameNode(parent.node.key, self)) return true;
+  if (parent.isObjectMethod() && !parent.node.computed && sameNode(parent.node.key, self)) return true;
+  if (parent.isClassProperty() && !parent.node.computed && sameNode(parent.node.key, self)) return true;
+  if (parent.isClassMethod() && !parent.node.computed && sameNode(parent.node.key, self)) return true;
+  if (parent.isMemberExpression() && !parent.node.computed && sameNode(parent.node.property, self)) return true;
   return false;
 }
+
+/**
+ * `{ X }`: the value node shares its range with the key, so it cannot be
+ * rewritten in place — it must be expanded to `{ X: <expr> }`.
+ */
+function isShorthandValue(path: NodePath): boolean {
+  const parent = path.parentPath;
+  if (!parent?.isObjectProperty()) return false;
+  if (!parent.node.shorthand || parent.node.computed) return false;
+  if (parent.node.value !== path.node) return false;
+  // `const { X } = obj` destructures a binding, never a global reference. Babel
+  // already treats it as a binding, this guard keeps the two paths disjoint.
+  return !parent.parentPath?.isObjectPattern();
+}
+
+/**
+ * Is this identifier the left-most link of a `new X` / `new X.Y.Z` callee chain?
+ *
+ * `new f().g()` parses as `(new f()).g()`, so rewriting `X` to a *call*
+ * (`__m3().X`) without parentheses silently turns `new X()` into
+ * `(new __m3()).X()` — the scope object gets constructed and the class is then
+ * invoked as a plain function. Wrapping only the chain root is enough:
+ * `new (a().b).c` parses as `new ((a().b).c)`.
+ */
+function isNewCalleeRoot(path: NodePath): boolean {
+  let cur: NodePath = path;
+  let parent = cur.parentPath;
+  while (parent?.isMemberExpression() && parent.node.object === cur.node) {
+    cur = parent;
+    parent = parent.parentPath;
+  }
+  return Boolean(parent?.isNewExpression() && parent.node.callee === cur.node);
+}
+
+/** `typeof X` must never throw: `typeof a.b` is legal even when `a` is unbound. */
+function isDirectTypeofOperand(path: NodePath): boolean {
+  const parent = path.parentPath;
+  return Boolean(
+    parent?.isUnaryExpression() &&
+      parent.node.operator === 'typeof' &&
+      parent.node.argument === path.node,
+  );
+}
+
+/**
+ * Globals that `getActiveScope()` resolves to itself even before a runtime
+ * exists, so `typeof window` is already `'object'` and needs no guard.
+ */
+const ALWAYS_OBJECT_GLOBALS: ReadonlySet<string> = new Set(['window', 'self', 'globalThis']);
 
 /** Rewrite free browser-global references in one module. Returns null if nothing changed. */
 export function rewriteGlobals(
@@ -107,7 +175,9 @@ export function rewriteGlobals(
 
   const ms = new MagicString(code);
   const seen = new Set<string>();
+  const hasAccessor = `${accessor}Has`;
   let count = 0;
+  let needsHasGuard = false;
 
   traverse(ast, {
     ReferencedIdentifier(path: NodePath<Node>) {
@@ -115,20 +185,47 @@ export function rewriteGlobals(
       const name = node.name;
       if (!name || !names.has(name)) return;
       if (node.start == null || node.end == null) return;
-      if (isNonComputedKey(path)) return;
       // Babel scope knows about imports, function params, local declarations,
       // catch bindings and block-scoped shadowing. This is the critical check
       // that a regex-based replacement cannot perform.
       if (path.scope.hasBinding(name, true)) return;
-      // `typeof window` stays correct: `typeof __m3().window` === 'object'.
+
+      const ref = `${accessor}().${name}`;
+
+      // 1) Shorthand must be handled before the key check: once `isNonComputedKey`
+      //    compares ranges, `{ X }`'s value looks like a key too and would be
+      //    silently skipped (leaving an undefined global behind).
+      if (isShorthandValue(path)) {
+        seen.add(name);
+        ms.overwrite(node.start, node.end, `${name}: (${ref})`);
+        count++;
+        return;
+      }
+
+      // 2) Object keys / member property names are not references.
+      if (isNonComputedKey(path)) return;
+
       seen.add(name);
-      ms.overwrite(node.start, node.end, `${accessor}().${name}`);
+      if (isDirectTypeofOperand(path) && !ALWAYS_OBJECT_GLOBALS.has(name)) {
+        // `typeof X` must never throw, but an uninitialized scope throws for
+        // everything except window/self/globalThis. Guard it so feature
+        // detection at module top level sees 'undefined' instead of exploding.
+        ms.overwrite(node.start, node.end, `(${hasAccessor}() ? ${ref} : undefined)`);
+        needsHasGuard = true;
+        count++;
+        return;
+      }
+      ms.overwrite(node.start, node.end, isNewCalleeRoot(path) ? `(${ref})` : ref);
       count++;
     },
   });
 
   if (count === 0) return null;
-  ms.prepend(SCOPE_IMPORT(accessor, scopeModule));
+  ms.prepend(SCOPE_IMPORT(
+    accessor,
+    scopeModule,
+    needsHasGuard ? [`hasActiveScope as ${hasAccessor}`] : [],
+  ));
   return {
     code: ms.toString(),
     map: ms.generateMap({ source: id, includeContent: true, hires: true }) as unknown as { toString(): string },
