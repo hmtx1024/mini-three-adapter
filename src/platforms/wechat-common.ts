@@ -70,23 +70,34 @@ export function watchWxVisibility(wx: WxLike, handler: (visible: boolean) => voi
 
 export interface ProbeContextOptions {
   /**
-   * Allow falling back to a *second* `wx.createCanvas()` when the offscreen
-   * probe cannot answer. This is only safe AFTER the on-screen canvas has been
-   * taken, because WeChat then guarantees every later `createCanvas()` returns
-   * an off-screen canvas. Callers must opt in explicitly (see ADR-0007).
+   * Allow falling back to a second `wx.createCanvas()` when the offscreen probe
+   * answers "no". Only callers that already resolved the on-screen canvas may
+   * opt in, and only when `createOffscreenCanvas` exists at all (see ADR-0007
+   * and ADR-0008).
    */
   allowCanvasFallback?: boolean;
   /**
-   * The on-screen canvas, when the caller already holds it.
+   * Every object that could be the on-screen canvas on this device: the canvas
+   * in use, the one the host seeded through `GameGlobal.screencanvas`, and
+   * `globalThis.canvas` (weapp-adapter style).
    *
    * WeChat returns the *on-screen* canvas from the first `createCanvas()` call.
-   * A host that seeded the canvas through `GameGlobal.screencanvas` never
-   * consumes that first call, so the fallback below can receive the screen
-   * canvas back. Probing it would create a context on it and then destroy it
-   * with `WEBGL_lose_context` — a black screen with no error. When the returned
-   * canvas is this object the probe gives up instead of touching it.
+   * A host that seeded the canvas never consumes that first call, so the
+   * fallback below can receive the screen canvas back — or a *different*
+   * pre-seeded canvas when the host also passed `canvas` explicitly. Probing
+   * any of them creates a context and then destroys it with
+   * `WEBGL_lose_context`: a black screen with no error. Identity is the only
+   * reliable judgement, so the whole candidate set is passed in.
    */
-  screenCanvas?: WxCanvas;
+  reservedCanvases?: readonly (WxCanvas | null | undefined)[];
+}
+
+/** Identity check against every known on-screen canvas candidate. */
+function isReserved(raw: WxCanvas, reserved: readonly (WxCanvas | null | undefined)[]): boolean {
+  for (const candidate of reserved) {
+    if (candidate != null && candidate === raw) return true;
+  }
+  return false;
 }
 
 /** Try one canvas; returns `false` when the context is simply unavailable. */
@@ -106,8 +117,8 @@ function probeRawContext(raw: WxCanvas, type: ContextType): boolean {
  * on-screen canvas. But offscreen support is NOT the same capability as
  * on-screen support: a base library can render WebGL2 on the screen canvas while
  * `createOffscreenCanvas` is missing or cannot create a WebGL2 context. So when
- * the offscreen answer is missing or negative and the caller allows it, we ask
- * the real canvas type as well.
+ * the offscreen answer is negative and the caller allows it, we ask the real
+ * canvas type as well.
  *
  * Returns `undefined` when the host cannot answer — callers must treat that as
  * "unknown", never as "unsupported".
@@ -127,18 +138,24 @@ export function probeContext(
     }
   }
   if (offscreen === true) return true;
-  if (options.allowCanvasFallback && typeof wx.createCanvas === 'function') {
-    try {
-      const raw = wx.createCanvas();
-      // Identity check, not a heuristic: the screen canvas must never be
-      // probed, because probing creates a context and then loses it.
-      if (options.screenCanvas && raw === options.screenCanvas) return undefined;
-      return probeRawContext(raw, type);
-    } catch {
-      return undefined;
-    }
+  if (!options.allowCanvasFallback) return offscreen;
+  if (typeof wx.createOffscreenCanvas !== 'function') {
+    // No offscreen API at all: nothing tells us whether the first
+    // `createCanvas()` was already consumed, so the fallback turns into a coin
+    // flip whose losing side is a destroyed screen context. Report "unknown"
+    // and let the caller infer from the base library version instead.
+    return undefined;
   }
-  return offscreen;
+  if (typeof wx.createCanvas !== 'function') return undefined;
+  try {
+    const raw = wx.createCanvas();
+    // Identity check, not a heuristic: the screen canvas must never be probed,
+    // because probing creates a context and then loses it.
+    if (isReserved(raw, options.reservedCanvases ?? [])) return undefined;
+    return probeRawContext(raw, type);
+  } catch {
+    return undefined;
+  }
 }
 
 export function createOffscreenCanvasRaw(

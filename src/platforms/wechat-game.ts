@@ -56,21 +56,45 @@ export function resetScreenCanvasCache(): void {
   cachedScreenCanvas = null;
 }
 
+/**
+ * Every object that may be the on-screen canvas on this device.
+ *
+ * It is NOT enough to compare against the canvas in use: a host that seeds
+ * `GameGlobal.screencanvas` and *also* passes `canvas` explicitly makes the
+ * `supplied` path skip the memo, so the seeded canvas stays unknown to the
+ * probe — and that is exactly the object `createCanvas()` hands back. Collect
+ * all four sources so the identity guard cannot be fooled by the entry point
+ * (ADR-0008).
+ */
+function screenCanvasCandidates(supplied?: WxCanvas): WxCanvas[] {
+  const host = globalThis as unknown as Record<string, unknown>;
+  const gameGlobal = host.GameGlobal as Record<string, unknown> | undefined;
+  const sources: unknown[] = [supplied, cachedScreenCanvas, gameGlobal?.screencanvas, host.canvas];
+  const candidates: WxCanvas[] = [];
+  for (const source of sources) {
+    if (!source) continue;
+    const canvas = source as WxCanvas;
+    if (typeof canvas.getContext !== 'function') continue;
+    if (!candidates.includes(canvas)) candidates.push(canvas);
+  }
+  return candidates;
+}
+
 export function createWeChatGameBinding(options: WeChatGameOptions = {}): PlatformBinding {
   const wx = resolveWx(options.wx);
   const diagnostics = options.diagnostics ?? createDiagnostics('warn');
   const rawCanvas = getScreenCanvas(wx, options.canvas);
+  // The on-screen canvas is already resolved above, so a second createCanvas()
+  // is *usually* off-screen. The exception is a host that seeded the canvas:
+  // then the first call was never consumed and can still hand the screen canvas
+  // back. Passing every candidate lets `probeContext` refuse those objects by
+  // identity instead of creating and immediately losing their context.
+  const reservedCanvases = screenCanvasCandidates(rawCanvas);
   const capabilities = detectCapabilities(wx, 'wechat-game', {
     overrides: options.capabilities,
     diagnostics,
-    // The on-screen canvas is already resolved above, so a second
-    // createCanvas() is guaranteed to be off-screen and safe to probe — except
-    // when the host seeded `GameGlobal.screencanvas`: then the first call was
-    // never consumed and can still hand the screen canvas back. Passing it in
-    // lets `probeContext` refuse that object by identity instead of creating
-    // and immediately losing its context.
     probeContext: (type) =>
-      probeContext(wx, type, { allowCanvasFallback: true, screenCanvas: rawCanvas }),
+      probeContext(wx, type, { allowCanvasFallback: true, reservedCanvases }),
   });
   const imageFactory = createWechatImageFactory(wx, diagnostics);
   const raf = createRafPair(wx, rawCanvas);

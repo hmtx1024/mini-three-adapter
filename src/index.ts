@@ -12,6 +12,8 @@ export {
   setActiveScope,
   hasActiveScope,
   installGlobals,
+  getEarlyScopeReads,
+  clearEarlyScopeReads,
 } from './scope';
 export type {
   MiniThreeScope,

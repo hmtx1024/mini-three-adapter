@@ -20,8 +20,10 @@ import type {
   WindowInfo,
 } from '../types';
 import {
+  clearEarlyScopeReads,
   createScope,
   getActiveScope,
+  getEarlyScopeReads,
   hasActiveScope,
   installGlobals,
   setActiveScope,
@@ -327,6 +329,22 @@ export async function createRuntime(
 
   const restoreScope = setActiveScope(scope);
   disposers.push(restoreScope);
+
+  // Someone probed the placeholder scope before this runtime existed. Those
+  // reads returned `undefined`, so a `typeof document` branch took the
+  // non-browser path — the runtime works, but a module was evaluated too early.
+  // Say so once instead of letting it show up as a mystery later.
+  const earlyReads = getEarlyScopeReads();
+  if (earlyReads.length > 0) {
+    clearEarlyScopeReads();
+    diagnostics.warnOnce(
+      'early-scope-read',
+      `Scoped globals were read before this runtime existed: ${earlyReads.join(', ')}. ` +
+        `Those reads returned undefined, so feature detection saw a non-browser host. ` +
+        `Await createXxxRuntime() before importing three.js (dynamic import), ` +
+        `or call installGlobals() first.`,
+    );
+  }
 
   const runtime: MiniThreeRuntime = {
     canvas,

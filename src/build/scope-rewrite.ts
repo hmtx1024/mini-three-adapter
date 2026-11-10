@@ -207,9 +207,11 @@ export function rewriteGlobals(
 
       seen.add(name);
       if (isDirectTypeofOperand(path) && !ALWAYS_OBJECT_GLOBALS.has(name)) {
-        // `typeof X` must never throw, but an uninitialized scope throws for
-        // everything except window/self/globalThis. Guard it so feature
-        // detection at module top level sees 'undefined' instead of exploding.
+        // `typeof X` must never throw. The placeholder scope answers the
+        // environment globals (document/navigator/screen/...) with `undefined`
+        // already, but everything else — TextDecoder, HTMLCanvasElement,
+        // Blob, ... — throws an actionable error on access, and a `typeof`
+        // probe must not become that error.
         ms.overwrite(node.start, node.end, `(${hasAccessor}() ? ${ref} : undefined)`);
         needsHasGuard = true;
         count++;

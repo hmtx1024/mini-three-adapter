@@ -133,19 +133,64 @@ function notInitialized(name: string): never {
 }
 
 /**
+ * Globals that describe *whether a DOM exists* rather than a concrete API.
+ *
+ * Feature detection reads them with `typeof` or truthiness — `typeof document`,
+ * `typeof window.document`, `if (navigator.userAgent)`. `typeof x.y` is NOT a
+ * safe operator in JavaScript: it throws as soon as the getter throws, and the
+ * build plugin can only guard a *direct* `typeof X` operand, not a member
+ * chain. Throwing here therefore turns "is this a browser?" into a crash inside
+ * the adapter, which is the one place a library cannot afford it.
+ *
+ * So before a runtime exists these keys read as `undefined` — exactly what a
+ * non-DOM host looks like — and the early read is recorded so `createRuntime()`
+ * can still point at the real cause. Every other key keeps throwing: touching
+ * `HTMLCanvasElement` or `TextDecoder` is a real use, not a probe, and a silent
+ * `undefined` would surface three frames later in an unrelated place.
+ */
+const UNDEFINED_BEFORE_RUNTIME: ReadonlySet<string> = new Set([
+  'document',
+  'navigator',
+  'screen',
+  'location',
+  'history',
+]);
+
+const earlyReads = new Set<string>();
+
+/**
+ * Names read from the placeholder scope before any runtime existed. Reported
+ * once by `createRuntime()`: it means some module was evaluated too early.
+ */
+export function getEarlyScopeReads(): readonly string[] {
+  return Array.from(earlyReads);
+}
+
+/** Clear the recorded early reads (called by `createRuntime()` after reporting). */
+export function clearEarlyScopeReads(): void {
+  earlyReads.clear();
+}
+
+/**
  * A stable placeholder returned when no runtime exists yet. `typeof scope.window`
- * still yields "object" (which is what three.js feature-detection expects), but
- * any real access throws an actionable error instead of silently returning
- * `undefined` three frames later.
+ * still yields "object" (which is what three.js feature-detection expects), the
+ * environment globals read as `undefined`, and any other access throws an
+ * actionable error instead of silently returning `undefined` three frames later.
  */
 const emptyScope: MiniThreeScope = new Proxy(
   { window: null, self: null, globalThis: null } as unknown as MiniThreeScope,
   {
     get(target, prop) {
       if (prop === 'window' || prop === 'self' || prop === 'globalThis') return emptyScope;
-      if (prop === 'document') return notInitialized('document');
       if (prop === Symbol.toStringTag) return 'MiniThreeScope';
-      return notInitialized(String(prop));
+      if (typeof prop === 'string' && UNDEFINED_BEFORE_RUNTIME.has(prop)) {
+        earlyReads.add(prop);
+        return undefined;
+      }
+      // Protocol hooks (Symbol.iterator, util.inspect.custom, ...) must not
+      // explode while someone is merely logging the placeholder.
+      if (typeof prop === 'symbol') return undefined;
+      return notInitialized(prop);
     },
     has() {
       return false;

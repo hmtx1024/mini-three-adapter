@@ -32,12 +32,16 @@ describe('probeContext', () => {
     expect(createCanvas).not.toHaveBeenCalled();
   });
 
-  it('falls back to a second createCanvas() when offscreen is unavailable', () => {
-    const wx = { createCanvas: () => fakeCanvas(['webgl2', 'webgl']) };
-    expect(probeContext(wx as never, 'webgl2', { allowCanvasFallback: true })).toBe(true);
+  it('does not fall back at all when the offscreen API is missing', () => {
+    // 没有 createOffscreenCanvas 时无法判断「首次 createCanvas()」是否已被消耗，
+    // 兜底等于掷硬币，而输的那一面是上屏上下文被销毁（ADR-0008）。
+    const createCanvas = vi.fn(() => fakeCanvas(['webgl2', 'webgl']));
+    const wx = { createCanvas };
+    expect(probeContext(wx as never, 'webgl2', { allowCanvasFallback: true })).toBeUndefined();
+    expect(createCanvas).not.toHaveBeenCalled();
   });
 
-  it('reports true from the real canvas even when offscreen cannot do WebGL2', () => {
+  it('reports true from the real canvas when offscreen cannot do WebGL2', () => {
     let calls = 0;
     const wx = {
       createOffscreenCanvas: () => { calls++; return fakeCanvas([]); },
@@ -58,21 +62,27 @@ describe('probeContext', () => {
     // loseContext 就能把上屏画布废掉，症状是黑屏且不报错。
     const getContext = vi.fn(() => ({ getExtension: () => ({ loseContext: vi.fn() }) }));
     const screen = { width: 1, height: 1, getContext } as unknown as WxCanvas;
-    const wx = { createCanvas: () => screen };
+    const wx = {
+      createOffscreenCanvas: () => fakeCanvas([]),
+      createCanvas: () => screen,
+    };
     const result = probeContext(wx as never, 'webgl2', {
       allowCanvasFallback: true,
-      screenCanvas: screen,
+      reservedCanvases: [screen],
     });
     expect(result).toBeUndefined();
     expect(getContext).not.toHaveBeenCalled();
   });
 
-  it('still uses createCanvas() when it returns a different canvas', () => {
+  it('still uses createCanvas() when it returns a canvas nobody reserved', () => {
     const screen = fakeCanvas(['webgl2']);
-    const wx = { createCanvas: () => fakeCanvas(['webgl2']) };
+    const wx = {
+      createOffscreenCanvas: () => fakeCanvas([]),
+      createCanvas: () => fakeCanvas(['webgl2']),
+    };
     expect(probeContext(wx as never, 'webgl2', {
       allowCanvasFallback: true,
-      screenCanvas: screen,
+      reservedCanvases: [screen],
     })).toBe(true);
   });
 });
@@ -131,6 +141,65 @@ describe('wechat-game binding probe safety', () => {
       // 探测不出结论，退回版本推断；绝不对上屏画布 getContext
       expect(binding.capabilities.webgl2Source).toBe('inferred');
       expect(getContext).not.toHaveBeenCalled();
+    } finally {
+      delete host.GameGlobal;
+      resetScreenCanvasCache();
+    }
+  });
+
+  it('leaves the seeded canvas untouched even when the host passes its own canvas', () => {
+    // §10.2b：宿主既预置了 `GameGlobal.screencanvas`，又显式传了另一个画布。
+    // `getScreenCanvas` 走 supplied 分支、不写缓存，比对基准若只取"本次使用的
+    // 画布"就对不上 `GameGlobal.screencanvas`，探测会把它废掉。
+    const host = globalThis as unknown as { GameGlobal?: { screencanvas?: unknown } };
+    const events: string[] = [];
+    const screenGetContext = vi.fn((type: string) => {
+      events.push(`screen.getContext(${type})`);
+      return { getExtension: () => ({ loseContext: () => events.push('screen.loseContext()') }) };
+    });
+    const screen = { width: 375, height: 667, getContext: screenGetContext } as unknown as WxCanvas;
+    const supplied = fakeCanvas(['webgl2']);
+
+    host.GameGlobal = { screencanvas: screen };
+    resetScreenCanvasCache();
+    try {
+      const binding = createWeChatGameBinding({
+        canvas: supplied,
+        // 没有 createOffscreenCanvas：兜底直接放弃
+        wx: { SDKVersion: '3.18.0', createCanvas: () => screen } as never,
+        diagnostics: createDiagnostics('silent'),
+      });
+      expect(binding.rawCanvas).toBe(supplied);
+      expect(screenGetContext).not.toHaveBeenCalled();
+      expect(events.filter((e) => e.startsWith('screen.'))).toEqual([]);
+      expect(binding.capabilities.webgl2Source).toBe('inferred');
+    } finally {
+      delete host.GameGlobal;
+      resetScreenCanvasCache();
+    }
+  });
+
+  it('refuses a seeded canvas handed back by createCanvas() when offscreen exists', () => {
+    // 离屏画布存在但答不出 WebGL2 时仍会回退；此时回退拿到的若正是被预置的
+    // 上屏画布，身份比对必须命中——基准是"所有候选"，不是"本次使用的画布"。
+    const host = globalThis as unknown as { GameGlobal?: { screencanvas?: unknown } };
+    const screenGetContext = vi.fn(() => ({ getExtension: () => ({ loseContext: vi.fn() }) }));
+    const screen = { width: 375, height: 667, getContext: screenGetContext } as unknown as WxCanvas;
+
+    host.GameGlobal = { screencanvas: screen };
+    resetScreenCanvasCache();
+    try {
+      const binding = createWeChatGameBinding({
+        canvas: fakeCanvas(['webgl2']),
+        wx: {
+          SDKVersion: '3.18.0',
+          createOffscreenCanvas: () => fakeCanvas([]),
+          createCanvas: () => screen,
+        } as never,
+        diagnostics: createDiagnostics('silent'),
+      });
+      expect(binding.capabilities.webgl2Source).toBe('inferred');
+      expect(screenGetContext).not.toHaveBeenCalled();
     } finally {
       delete host.GameGlobal;
       resetScreenCanvasCache();
