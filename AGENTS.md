@@ -21,7 +21,7 @@
 
 ```bash
 npm run typecheck   # tsc --noEmit, strict + noUncheckedIndexedAccess
-npm test            # vitest run（单 fork，63 例）
+npm test            # vitest run（单 fork，71 例）
 npm run build       # tsup → dist/*.js + *.d.ts
 npm run check       # 以上全部
 ```
@@ -30,7 +30,7 @@ Windows 临时目录权限问题：`TMP="$PWD/.tmp/vitest" TEMP="$PWD/.tmp/vites
 
 ## 架构不变量（**不得破坏**）
 
-1. **只有一个上屏画布**：`wx.createCanvas()` 只在 `getScreenCanvas()` 调用一次并缓存，之后的调用只会得到离屏画布。能力探测优先用 `wx.createOffscreenCanvas()`；仅在上屏画布**已解析之后**、且调用方显式 opt-in 时，才可按 [ADR-0007](./docs/adr/0007-capability-probe-fallback.md) 回退到第二次 `createCanvas()`。
+1. **只有一个上屏画布**：`wx.createCanvas()` 只在 `getScreenCanvas()` 调用一次并缓存，之后的调用只会得到离屏画布。能力探测优先用 `wx.createOffscreenCanvas()`；仅在上屏画布**已解析之后**、离屏 API **存在**、且调用方显式 opt-in 时，才可按 [ADR-0007](./docs/adr/0007-capability-probe-fallback.md)/[ADR-0008](./docs/adr/0008-probe-fallback-boundary.md) 回退到第二次 `createCanvas()`，并对候选上屏画布集合逐个比对身份。
 2. **对象身份不变**：canvas / image 永远是 `wx` 返回的那个对象。禁止 `new Proxy` 包装、`Object.setPrototypeOf`、返回克隆体。用 `Object.defineProperty` + `Symbol.hasInstance` 注册表。
 3. **默认零全局污染**：只有 `installGlobals()` 写 `globalThis`，必须显式调用、必须可逆；三方代码只能经 `getActiveScope()` 拿 shim。
 4. **`three` 零运行时依赖**：`src/` 不得 `import 'three'`；它是 optional peer + external。

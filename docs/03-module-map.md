@@ -8,7 +8,7 @@
 | 文件 | 职责 | 关键导出 | 改这里 | 会影响 |
 | --- | --- | --- | --- | --- |
 | `src/types.ts` | 全部公开类型，纯 type-only | `Rect`、`WindowInfo`、`Capabilities`、`PatchedCanvas`、`TouchLikeEvent`、`FrameScheduler`、`RuntimeEvents` 等 | 新增平台能力字段、事件名称 | `core/*`、`platforms/*`、`dist/*.d.ts`、`docs/04` |
-| `src/scope.ts` | 作用域协议：`MiniThreeScope`、活动作用域单例、显式全局注入 | `createScope`、`getActiveScope`、`setActiveScope`、`hasActiveScope`、`installGlobals` | 新增三方代码可能访问的浏览器全局 | **构建插件注入的 import**、[ADR-0001](./adr/0001-scoped-globals.md)、`docs/04` |
+| `src/scope.ts` | 作用域协议：`MiniThreeScope`、活动作用域单例、显式全局注入、未初始化占位对象 | `createScope`、`getActiveScope`、`setActiveScope`、`hasActiveScope`、`installGlobals`、`getEarlyScopeReads`、`clearEarlyScopeReads` | 新增三方代码可能访问的浏览器全局；`UNDEFINED_BEFORE_RUNTIME` 里「探测型全局」的取舍 | **构建插件注入的 import**、[ADR-0001](./adr/0001-scoped-globals.md)、`docs/04`、`tests/scope.test.ts` |
 | `src/index.ts` | 汇总导出 | 全部公开 API | 新增公共入口 | `package.json` `exports`、`docs/04` |
 | `src/core/index.ts` | core 子路径导出 | core API | 同上 | `docs/04` |
 | `src/polyfills/index.ts` | polyfills 子路径导出 | polyfill API | 同上 | `docs/04` |
@@ -47,7 +47,7 @@
 | 文件 | 职责 | 关键导出 | 改这里 | 会影响 |
 | --- | --- | --- | --- | --- |
 | `src/platforms/wx-types.ts` | 手写最小 `wx` 结构化类型（不依赖官方 typings） | `WxLike`、`WxCanvas`、`WxTouchEvent`、`resolveWx` | 用到新的 `wx.*` API 时补类型 | 所有平台；`docs/04` |
-| `src/platforms/wechat-common.ts` | rAF / now / touch / visibility / 离屏画布 / 能力探测共用实现 | `watchWxTouch`、`createRafPair`、`probeContext`（返回 `boolean \| undefined`，按 `screenCanvas` 身份拒绝探测上屏画布）等 | 微信 API 变更、探测回退策略（ADR-0007） | `wechat-game.ts`、`wechat-miniprogram.ts` |
+| `src/platforms/wechat-common.ts` | rAF / now / touch / visibility / 离屏画布 / 能力探测共用实现 | `watchWxTouch`、`createRafPair`、`probeContext`（返回 `boolean \| undefined`；无 `createOffscreenCanvas` 时不兜底，兜底时按 `reservedCanvases` 身份拒绝探测任何候选上屏画布）等 | 微信 API 变更、探测回退策略（ADR-0007、ADR-0008） | `wechat-game.ts`、`wechat-miniprogram.ts` |
 | `src/platforms/wechat-game.ts` | 小游戏绑定 + 入口 | `createWeChatGameRuntime`、`createWeChatGameBinding`、`getScreenCanvas` | **上屏画布获取顺序**、锁帧 | `examples/wechat-minigame` |
 | `src/platforms/wechat-miniprogram.ts` | 小程序绑定（`createSelectorQuery`） | `createWeChatMiniProgramRuntime` | 选择器查询、组件作用域 `selectorCtx` | `examples/wechat-miniprogram` |
 | `src/platforms/browser.ts` | 浏览器 / Node 测试平台 | `createBrowserRuntime`、`createBrowserBinding` | H5 双端能力 | `examples/h5` |
@@ -93,7 +93,7 @@
 
 ## 3.8 修改后必做
 
-1. `npm run check`（typecheck + 63 例单测 + tsup 构建）。
+1. `npm run check`（typecheck + 71 例单测 + tsup 构建）。
 2. 更新本表（若职责变化）、`docs/04-api-reference.md`（若导出变化）、`CHANGELOG.md`。
 3. 若触及架构不变量，新增或修订 `docs/adr/*.md`。
 4. 若新增了平台能力，更新 `docs/11-compat-matrix.md`。

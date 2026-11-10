@@ -32,6 +32,8 @@
 - [ADR-0005 WebGL2 only](./docs/adr/0005-webgl2-only.md)
 - [ADR-0006 zero three dependency](./docs/adr/0006-zero-three-dependency.md)
 - [ADR-0007 capability probe fallback](./docs/adr/0007-capability-probe-fallback.md)
+- [ADR-0008 probe fallback boundary](./docs/adr/0008-probe-fallback-boundary.md)
+- [ADR-0009 placeholder scope environment globals](./docs/adr/0009-placeholder-scope-environment-globals.md)
 
 ## Source entry points
 
@@ -59,7 +61,8 @@
 - [tests/plugin.test.ts](./tests/plugin.test.ts): plugin and assets.
 - [tests/image-events.test.ts](./tests/image-events.test.ts): native image onload/onerror bridge + decode.
 - [tests/event-dispatch.test.ts](./tests/event-dispatch.test.ts): listener `this` / event.target / currentTarget resolve to the host element.
-- [tests/capabilities.test.ts](./tests/capabilities.test.ts): context probing fallback, screen-canvas identity guard, webgl2Source.
+- [tests/capabilities.test.ts](./tests/capabilities.test.ts): context probing fallback, screen-canvas identity guard (candidate set), webgl2Source.
+- [tests/scope.test.ts](./tests/scope.test.ts): placeholder scope before a runtime (environment globals read as undefined, early-read reporting).
 - [tests/helpers/mock-wx.ts](./tests/helpers/mock-wx.ts): injectable wx simulator.
 - [examples/README.md](./examples/README.md): three runnable targets (mini game / mini program / H5).
 

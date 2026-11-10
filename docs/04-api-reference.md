@@ -1,6 +1,6 @@
 # 04 · API 参考
 
-> 版本：0.1.3。所有签名以 `src/**` 与 `npm run build` 生成的 `dist/*.d.ts` 为准。
+> 版本：0.1.4。所有签名以 `src/**` 与 `npm run build` 生成的 `dist/*.d.ts` 为准。
 > 子路径导入可最大化 tree-shaking；`mini-three-adapter` 是汇总入口。
 
 ## 4.1 子路径
@@ -134,11 +134,21 @@ interface BrowserPlatformOptions {
 
 ```ts
 function createScope(overrides?: Partial<MiniThreeScope>): MiniThreeScope;
-function getActiveScope(): MiniThreeScope;         // 未初始化时返回「可 typeof、取值即抛错」的占位
+function getActiveScope(): MiniThreeScope;         // 未初始化时返回占位对象，见下
 function setActiveScope(scope: MiniThreeScope | null): () => void;
 function hasActiveScope(): boolean;
 function installGlobals(scope, options?): () => void;
+function getEarlyScopeReads(): readonly string[];  // 未初始化时被读过的全局名
+function clearEarlyScopeReads(): void;
 ```
+
+未初始化时的占位对象有两条不同策略：
+
+- `window` / `self` / `globalThis` 指向自身，`typeof window === 'object'`，与 three 的特性检测假设一致；
+- `document` / `navigator` / `screen` / `location` / `history` 读作 `undefined`，等价于「这个宿主没有 DOM」。`typeof` 对这些键永不抛错，包括构建插件无法守卫的 `typeof window.document` 形态；
+- 其余键（`HTMLCanvasElement`、`TextDecoder`、`Blob` …）读取即抛错，因为那不是探测而是真实使用，静默 `undefined` 只会在几帧之后以无关的形式爆掉。
+
+这些「读作 `undefined`」的早读会被记录，`createRuntime()` 启动后 `warnOnce` 汇总一次（提示 `three` 求值过早），随后清空。
 
 `MiniThreeScope` 同时扮演 `window` / `self` / `globalThis`（三者指向自身），并包含：
 

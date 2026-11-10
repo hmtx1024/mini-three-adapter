@@ -10,7 +10,9 @@
 | [0004](./0004-in-place-patching.md) | 就地 patch 画布，不改原型、不用 Proxy | Accepted |
 | [0005](./0005-webgl2-only.md) | WebGL2 优先，不静默降级到 WebGL1 | Accepted |
 | [0006](./0006-zero-three-dependency.md) | 运行时零 `three` 依赖，构建/运行严格隔离 | Accepted |
-| [0007](./0007-capability-probe-fallback.md) | 能力探测允许主画布回退，`undefined` 表示「无法探测」 | Accepted |
+| [0007](./0007-capability-probe-fallback.md) | 能力探测允许主画布回退，`undefined` 表示「无法探测」 | Accepted（部分被 0008 收紧） |
+| [0008](./0008-probe-fallback-boundary.md) | 无离屏 API 不兜底；身份基准取候选上屏画布全集 | Accepted |
+| [0009](./0009-placeholder-scope-environment-globals.md) | 占位作用域的环境全局读作 `undefined`，早读改为启动时点名 | Accepted |
 
 模板（新增 ADR 时复制）：
 

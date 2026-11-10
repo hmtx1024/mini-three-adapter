@@ -1,6 +1,6 @@
 # ADR-0007 · 能力探测允许「主画布回退」与「无法探测」语义
 
-- 状态：Accepted
+- 状态：Accepted，其中「回退触发条件」与「身份比对基准」两条被 [ADR-0008](./0008-probe-fallback-boundary.md) 收紧
 - 日期：2026-11-10
 - 影响模块：`src/core/capabilities.ts`、`src/platforms/wechat-common.ts`、`src/platforms/wechat-game.ts`、`src/platforms/wechat-miniprogram.ts`、`src/types.ts`
 
@@ -18,8 +18,8 @@
 1. `probeContext` 返回 `boolean | undefined`：
    - `true` / `false` 表示**实测结果**；
    - `undefined` 表示**无法探测**。
-2. 探测顺序：离屏实测 → （仅当调用方显式允许时）第二次 `wx.createCanvas()` 实测 → 仍无法判定则返回 `undefined`。
-3. 回退带**身份守卫**：调用方把上屏画布引用传给 `probeContext`（`screenCanvas`），若 `createCanvas()` 返回的正是这个对象，立即返回 `undefined`，既不 `getContext` 也不 `WEBGL_lose_context`。
+2. 探测顺序：离屏实测 → （仅当离屏 API 存在、上屏画布已解析且调用方显式允许时）第二次 `wx.createCanvas()` 实测 → 仍无法判定则返回 `undefined`。
+3. 回退带**身份守卫**：调用方把候选上屏画布集合传给 `probeContext`（`reservedCanvases`），若 `createCanvas()` 返回的正是其中任一对象，立即返回 `undefined`，既不 `getContext` 也不 `WEBGL_lose_context`。
 4. `detectCapabilities` 把 `undefined` 当作未知，退回基础库版本启发式（`>= 2.20.0`），并用新增的 `capabilities.webgl2Source`（`'probe' | 'inferred' | 'override'`）标明来源；此时 `warnOnce` 提示一次。
 
 ## 理由
@@ -53,5 +53,9 @@
 
 ## 验证方式
 
-- `tests/capabilities.test.ts`：离屏优先且不碰 `createCanvas`、离屏不可用时回退、离屏返回 false 而主画布返回 true、完全无法探测时返回 `undefined`、回退拿到上屏画布时按身份放弃（`getContext` 零调用）、`webgl2Source` 三种取值，以及 `GameGlobal.screencanvas` 预置时 `createWeChatGameBinding` 不触碰屏画布。
+- `tests/capabilities.test.ts`：离屏优先且不碰 `createCanvas`、离屏答不出时回退、离屏返回 false 而主画布返回 true、完全无法探测时返回 `undefined`、回退拿到上屏画布时按身份放弃（`getContext` 零调用）、`webgl2Source` 三种取值，以及 `GameGlobal.screencanvas` 预置时 `createWeChatGameBinding` 不触碰屏画布。
 - `tests/runtime.test.ts`：小游戏运行时能力报告仍包含 `wechat-game` 与 `WebGL2`。
+
+## 修订记录
+
+- 2026-11-10（0.1.4）：[ADR-0008](./0008-probe-fallback-boundary.md) 把第 2 条收窄为「无 `createOffscreenCanvas` 时完全不回退」，把第 3 条的身份基准从单个 `screenCanvas` 扩为候选全集 `reservedCanvases`。原因是宿主显式传 `canvas` 时，「本次使用的画布」与「设备的上屏画布」不是同一个对象，比对会落空。

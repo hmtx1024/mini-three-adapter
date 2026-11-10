@@ -4,9 +4,32 @@
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-11-10
+
+0.1.3 复核报告里的两个遗留项：探测兜底的窄口子（重后果）与占位作用域的 `typeof` 抛错（潜伏）。
+
+### Added
+
+- 新增 `getEarlyScopeReads()` / `clearEarlyScopeReads()`：查询「runtime 创建之前被读过的环境全局名」，便于排查求值过早。
+- 新增 `tests/scope.test.ts`（6 例）：占位作用域的两条边界与早读点名。
+- 新增 [ADR-0008](./docs/adr/0008-probe-fallback-boundary.md)（探测兜底的边界）、[ADR-0009](./docs/adr/0009-placeholder-scope-environment-globals.md)（占位作用域的环境全局）。
+- `tests/capabilities.test.ts` 增加三条用例：无离屏 API 时 `createCanvas()` 零调用、`GameGlobal.screencanvas` 预置 + 显式传 `canvas` 时零触碰、离屏存在但回退拿到预置画布时零触碰。
+
 ### Changed
 
+- `ProbeContextOptions.screenCanvas` → `reservedCanvases`：身份比对的基准从「本次使用的画布」扩为「所有可能的上屏画布」（显式传入 / 缓存 / `GameGlobal.screencanvas` / `globalThis.canvas`）。
+- 未初始化占位作用域：`document` / `navigator` / `screen` / `location` / `history` 读作 `undefined`，其余键仍然抛带指引的错误。
 - 校正文档中过期的数字与版本标注：`docs/09` 的包体描述改为 0.1.3 实测值（74 个文件 / 解包 644 KB / tarball 182 KB），`docs/04` 的版本标注同步到 0.1.3。
+
+### Fixed
+
+- **能力探测：宿主显式传 `canvas` 时身份比对失效（P2，后果仍是黑屏）**。`getScreenCanvas` 走 `supplied` 分支时不写缓存，比对基准取「本次使用的画布」就与 `GameGlobal.screencanvas` 对不上；`createCanvas()` 返回预置的上屏画布时，`getContext` + `WEBGL_lose_context` 照样把它废掉。现在比对基准是候选全集，命中任一即放弃探测并退回 `webgl2Source: 'inferred'`。
+- **能力探测：缺 `createOffscreenCanvas` 时仍在兜底**。此时无法判断「首次 `createCanvas()`」是否已被消耗，兜底等于掷硬币，输的那一面是上屏上下文被销毁。现在离屏 API 不存在就直接返回 `undefined`，由 `webgl2Source: 'inferred'` 显式暴露不确定性。
+- **`typeof document` 在 runtime 之前仍会抛（BUG-5）**。构建期守卫只覆盖 `typeof X` 这种直接操作数，`typeof window.document`（成员表达式）与未被改写的应用层代码都会落到占位对象上抛错。现在环境探测型全局读作 `undefined`，`typeof` 与真值判断都正常；真实 API 误读仍在发生的那一行报错，并由 `createRuntime()` 的 `warnOnce` 汇总早读。
+
+### Tests
+
+- 用例从 63 增至 71。
 
 ## [0.1.3] - 2026-11-10
 

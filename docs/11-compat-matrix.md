@@ -28,9 +28,9 @@
 | --- | --- | --- | --- |
 | `wx.createCanvas` / `getContext('webgl2')` | — | ✅ | [渲染文档](https://developers.weixin.qq.com/minigame/dev/guide/base-ability/render.html) |
 | 唯一上屏画布规则 | — | ✅ | `getScreenCanvas()` 单次缓存 |
-| `wx.createOffscreenCanvas` | 2.7.0（小程序）/ 小游戏同期 | ✅ | 离屏画布首选来源；探测不到时回退到第二次 `createCanvas()`（[ADR-0007](./adr/0007-capability-probe-fallback.md)） |
+| `wx.createOffscreenCanvas` | 2.7.0（小程序）/ 小游戏同期 | ✅ | 离屏画布首选来源；**API 完全不存在时不做回退**，退回版本推断（[ADR-0008](./adr/0008-probe-fallback-boundary.md)） |
 | WebGL2 能力判定 | — | ✅ | 顺序：离屏实测 → 主画布实测 → 按基础库版本推断；`capabilities.webgl2Source` 标明来源，`'inferred'` 表示未实测 |
-| 回退探测与上屏画布的身份冲突 | — | ✅ | `probeContext` 接收 `screenCanvas`，`createCanvas()` 返回同一对象时直接放弃、不 `getContext`（`GameGlobal.screencanvas` 预置宿主） |
+| 回退探测与上屏画布的身份冲突 | — | ✅ | `probeContext` 接收 `reservedCanvases`（本次画布 + 缓存画布 + `GameGlobal.screencanvas` + `globalThis.canvas`），`createCanvas()` 返回其中任一对象即放弃、不 `getContext`（含宿主显式传 `canvas` 的窄口子） |
 | `wx.getWindowInfo` | 较新版本 | ✅ | 回退 `getSystemInfoSync` |
 | `wx.onWindowResize` | — | 🟡 | 不可用时告警，需手动 `runtime.resize()` |
 | `WXWebAssembly` | 2.13.0（Worker 内 2.15.0） | 🟡 | [官方文档](https://developers.weixin.qq.com/minigame/dev/guide/performance/perf-webassembly.html)；插件按引用拷贝 wasm |

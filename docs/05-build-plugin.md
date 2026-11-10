@@ -57,7 +57,9 @@ flowchart TD
 
 > 为什么只有 `new` 需要括号：`typeof`、`in`、`delete`、`?.`、`instanceof` 右侧等位置，`__m3().X` 的优先级都足够高；唯一优先级倒挂的是 `new`。
 
-> 为什么 `typeof` 要单独守卫：`typeof` 是本应永不抛错的运算符，而 `emptyScope` 对未初始化的 `document` 等键会抛出可读错误。不加守卫时，库顶层的 `const isBrowser = typeof document !== 'undefined'` 会在 runtime 创建之前直接崩掉，而报错指向适配层，极易误判为「初始化顺序写错」。守卫只加在 `window/self/globalThis` 之外的名字上，因为这三个在 `emptyScope` 里恒指向自身。
+> 为什么 `typeof` 要单独守卫：`typeof` 是本应永不抛错的运算符，而 `emptyScope` 只对 `document` / `navigator` / `screen` / `location` / `history` 返回 `undefined`，其余键（`TextDecoder`、`HTMLCanvasElement`、`Blob` …）仍然抛可读错误。不加守卫时，库顶层的 `typeof TextDecoder !== 'undefined'` 会在 runtime 创建之前直接崩掉，而报错指向适配层，极易误判为「初始化顺序写错」。守卫只加在 `window/self/globalThis` 之外的名字上，因为这三个在 `emptyScope` 里恒指向自身。
+
+> 守卫的边界：它只覆盖 `typeof X` 这种**直接操作数**。`typeof window.document` 的操作数是成员表达式，插件唯一能改的是 `window`，因此那条路径靠 `emptyScope` 把 `document` 读作 `undefined` 来兜住（见 [ADR-0009](./adr/0009-placeholder-scope-environment-globals.md)）。
 
 `globalThis` **故意不在**默认清单里：three 会用它挂调试钩子（`__THREE_DEVTOOLS__` 等），改写会破坏这些逻辑。
 
@@ -168,7 +170,7 @@ console.log(plugin.api.report());
 | --- | --- | --- |
 | `Class constructor xxx cannot be invoked without 'new'`（栈顶常是 `GLTFLoader.js:444`） | 改写产物把 `new TextDecoder()` 变成了 `(new __m3()).TextDecoder()` | 升级到含本修复的版本；宿主侧临时补丁见下 |
 | `SyntaxError: Unexpected token '.'`，指向 `{ __m3().xxx }` | 对象简写属性被原地替换 | 同上 |
-| `Scoped global "document" was read before a runtime was created` | 真的在 runtime 之前读了 `document`（不是 `typeof`） | 按 [`docs/07`](./07-integration-guide.md#74-入口改造最关键的一步) 调整入口顺序 |
+| `Scoped global "document" was read before a runtime was created` | 真的在 runtime 之前读了 `document`（不是 `typeof`）；`document` 本身已不再抛错，这个文案现在只会出现在 `TextDecoder` / `HTMLCanvasElement` 这类真实 API 上 | 按 [`docs/07`](./07-integration-guide.md#74-入口改造最关键的一步) 调整入口顺序 |
 | `new __m3().X` 残留 | 适配层版本过旧 | 检查 `dist` 里的重写器版本，清理缓存后重建 |
 
 临时规避（仅用于旧版本）：在适配层插件**之后**（`enforce: 'post'`）跑一段产物级正则，把 `new __m3().X()` 改成 `new (__m3().X)()`。它依赖访问器名与「空参数」两个特征，适配层改了默认 `accessor` 就会静默失效，因此修复到位后应当删除。

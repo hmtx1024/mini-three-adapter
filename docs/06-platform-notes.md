@@ -29,8 +29,8 @@ const { startScene } = await import('./scene.js'); // scene.js 里才 import thr
 
 **兜底**：`createWeChatGameRuntime({ installGlobals: true })`，把 shim 显式挂到 `globalThis`（可逆），适合无法改导入结构的老项目。
 
-诊断：占位作用域在真正取属性时会抛
-`Scoped global "xxx" was read before a runtime was created`，直接提示上述两种解法。
+诊断：占位作用域里 `document` / `navigator` / `screen` / `location` / `history` 读作 `undefined`（`typeof` 永不抛错），其余键真正取值时会抛
+`Scoped global "xxx" was read before a runtime was created`，直接提示上述两种解法。早读过的环境全局会被记录下来，`createRuntime()` 启动时 `warnOnce` 汇总一次，指向「three 求值过早」。
 
 ## 6.3 已知坑位与处理
 
@@ -49,7 +49,7 @@ const { startScene } = await import('./scene.js'); // scene.js 里才 import thr
 | `img.onload` / `addEventListener('load')` 永不触发，纹理靠超时兜底 | 图片 shim 只建了「合成事件 → 用户回调」这条边，没有「原生 load → 合成事件」 | `createImageFactory` 在 patch 前抓原生 `onload`/`onerror` 描述符并挂转发器；宿主不可拦截时 `warnOnce` 告警（`image has no writable onload/onerror`） |
 | `canvas.onpointerdown = fn` 之类行内处理器不触发 | 事件方法被绑定到内部对象，`this['on'+type]` 查找落空 | `patchEventTarget` 把宿主对象作为行内处理器宿主传入 |
 | `texture.image` 是个没有 `src` 的空壳，贴图不显示 | 监听器里的 `this` 是内部 `MiniEventTarget`，three `ImageLoader` 把它当成 `<img>` 存进 `Texture.source.data` | `dispatchEvent` 把 `this`、`event.target`、`currentTarget` 全部转发到宿主元素；`event.target` 不再暴露内部监听表 |
-| 预置 `GameGlobal.screencanvas` 的宿主偶发黑屏 | 探测回退拿到的正是上屏画布，`getContext` + `WEBGL_lose_context` 把它废掉 | `probeContext` 按身份比对 `screenCanvas`，命中同一对象立即放弃探测，退回 `webgl2Source: 'inferred'` |
+| 预置 `GameGlobal.screencanvas` 的宿主偶发黑屏 | 探测回退拿到的正是上屏画布，`getContext` + `WEBGL_lose_context` 把它废掉 | 无 `createOffscreenCanvas` 时干脆不兜底；兜底时按 `reservedCanvases`（本次使用的画布 + 缓存画布 + `GameGlobal.screencanvas` + `globalThis.canvas`）逐个比对身份，命中任一即放弃并退回 `webgl2Source: 'inferred'`（ADR-0008） |
 
 深度缓冲补丁（应用层显式启用）：
 
@@ -95,8 +95,8 @@ mini-three-adapter capability report
 ```
 
 - `probeContext()` 优先用 `wx.createOffscreenCanvas({type:'webgl2'})` 探测并主动 `WEBGL_lose_context` 释放，**不会**占用上屏画布。
-- 离屏不可用（或离屏不支持 WebGL2）时，小游戏绑定会回退到**第二次** `wx.createCanvas()` 实测——此时上屏画布已解析，新画布必然离屏。小程序绑定不做这个回退：它的画布节点来自选择器查询，直接探测会用默认属性抢先创建真实上下文。决策见 [ADR-0007](./adr/0007-capability-probe-fallback.md)。
-- 回退有一道身份守卫：`probeContext` 接收上屏画布引用，`createCanvas()` 若返回**同一个对象**就立刻放弃，既不 `getContext` 也不 `WEBGL_lose_context`。这条守卫针对宿主预置 `GameGlobal.screencanvas` 的情况——那时"首次 `createCanvas()`"没有被消耗，仍可能把上屏画布交回来。
+- 只有离屏 API **存在**但答不出 WebGL2 时，小游戏绑定才会回退到第二次 `wx.createCanvas()` 实测；离屏 API 完全不存在时直接放弃兜底——因为那时无法判断「首次 `createCanvas()`」是否已被消耗，兜底等于掷硬币。小程序绑定从不回退：它的画布节点来自选择器查询，直接探测会用默认属性抢先创建真实上下文。决策见 [ADR-0007](./adr/0007-capability-probe-fallback.md)、[ADR-0008](./adr/0008-probe-fallback-boundary.md)。
+- 回退有一道身份守卫：调用方传入 `reservedCanvases`（本次使用的画布、缓存的上屏画布、`GameGlobal.screencanvas`、`globalThis.canvas` 的并集），`createCanvas()` 返回其中**任一对象**就立刻放弃，既不 `getContext` 也不 `WEBGL_lose_context`。基准必须是「所有可能的上屏画布」而不是「本次使用的画布」：宿主既预置 `screencanvas` 又显式传 `canvas` 时，两者不是同一个对象。
 - 两者都无法判定时返回 `undefined`，`webgl2` 按基础库版本推断，`webgl2Source` 标为 `'inferred'` 并告警一次。**「探测不到」不等于「不支持」**。
 - 探测结果可用 `capabilities` 选项覆盖（用于测试或已知机型分级），此时 `webgl2Source` 为 `'override'`。
 - 实测 `webgl2: false` 时会告警，但**不会静默降级到 WebGL1**——three ≥ r163 本来就要求 WebGL2，静默降级只会延后报错。

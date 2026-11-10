@@ -54,7 +54,7 @@ src/index.ts               汇总导出
 
 1. `createWeChatGameRuntime(options)` → `createWeChatGameBinding()`。
 2. `getScreenCanvas(wx)` 按 `options.canvas` → `GameGlobal.screencanvas` → `globalThis.canvas` → `wx.createCanvas()` 的顺序取**唯一**上屏画布，并做模块级缓存。
-3. `detectCapabilities()` 优先用 `wx.createOffscreenCanvas()` 探测 WebGL2；上屏画布已解析后允许显式回退到第二次 `wx.createCanvas()`（[ADR-0007](./adr/0007-capability-probe-fallback.md)）。探测不到时返回 `undefined`，按基础库版本推断并在 `webgl2Source` 标明，**绝不把「探测不到」当成 `false`**。
+3. `detectCapabilities()` 优先用 `wx.createOffscreenCanvas()` 探测 WebGL2；上屏画布已解析且离屏 API 存在时，允许显式回退到第二次 `wx.createCanvas()`，并对候选上屏画布集合做身份拒绝（[ADR-0007](./adr/0007-capability-probe-fallback.md)、[ADR-0008](./adr/0008-probe-fallback-boundary.md)）。探测不到时返回 `undefined`，按基础库版本推断并在 `webgl2Source` 标明，**绝不把「探测不到」当成 `false`**。
 4. `createDocument()` 建出 `document` / `body` / `screen` 等容器；`createElement('canvas')` 走 `webgl2` 离屏画布，失败降级 `2d` 并告警。
 5. `patchCanvas()` 在原对象上定义 `style` / `clientWidth` / `getBoundingClientRect` / `getContext` / EventTarget 方法，并注册到 `HTMLCanvasElementShim` 的 `WeakSet`。
 6. 组装 `MiniThreeScope`（polyfill 构造器 + 领域对象 + live getter），`setActiveScope(scope)` 让 `__m3()` 生效。
@@ -98,7 +98,7 @@ sequenceDiagram
 
 ## 2.5 架构不变量（AI 必读，不得破坏）
 
-1. **只有一个上屏画布**：`wx.createCanvas()` 只在 `getScreenCanvas()` 中调用一次并被缓存；任何新增代码不得再调用它。
+1. **只有一个上屏画布**：`wx.createCanvas()` 只在 `getScreenCanvas()` 中调用一次并被缓存；能力探测只能走 `wx.createOffscreenCanvas()`，唯一的例外是「离屏 API 存在、上屏画布已解析、且调用方显式 opt-in」时的回退探测，且回退对象必须与**候选上屏画布集合**逐个比对身份（ADR-0007、ADR-0008）。
 2. **对象身份不变**：canvas / image 永远是 `wx` 返回的那个对象；禁止 `new Proxy` 包装、禁止 `Object.setPrototypeOf`、禁止返回克隆体。
 3. **默认零全局污染**：只有 `installGlobals()` 会写 `globalThis`，且必须可逆；`getActiveScope()` 是三方代码访问 shim 的唯一通道。
 4. **`three` 零运行时依赖**：`src/` 不 import `three`，`package.json` 中它只是 optional peer。
@@ -114,10 +114,10 @@ sequenceDiagram
 | 情况 | 行为 |
 | --- | --- |
 | 没有 `wx`（Node/浏览器） | `createWeChatGameRuntime({ wx })` 可注入；`browser` 平台用真实 DOM |
-| `createOffscreenCanvas` 不可用 | 探测回退到主画布类型；仍不可判定则标记 `webgl2Source: 'inferred'`；`createCanvas()` 抛明确错误；文档提示升级基础库 |
+| `createOffscreenCanvas` 不可用 | 直接放弃兜底，标记 `webgl2Source: 'inferred'`（按基础库版本推断）；`createCanvas()` 抛明确错误；文档提示升级基础库。**不**回退到 `createCanvas()`，因为无法判断首次调用是否已被消耗（ADR-0008） |
 | WebGL2 不可用 | `diagnostics.warn` + 能力报告；不静默降级到 WebGL1（three ≥ r163 也无法工作） |
 | `wx.createImage` 缺失 | 回退 `OffscreenCanvas.createImage()`，再失败抛可操作错误 |
-| `typeof window` 在 runtime 之前被读取 | `emptyScope` 让 `typeof` 返回 `'object'`，真正取属性时抛带指引的错误 |
+| `typeof window` / `typeof document` 在 runtime 之前被读取 | `emptyScope` 让 `typeof window` 返回 `'object'`；`document` / `navigator` / `screen` / `location` / `history` 返回 `undefined`（等价于「没有 DOM 的宿主」），其余键真正取值时抛带指引的错误；早读会被记录，`createRuntime()` 启动时 `warnOnce` 汇总一次（[ADR-0009](./adr/0009-placeholder-scope-environment-globals.md)） |
 | AST 解析失败 | 插件记录 `parseFailures`、告警并跳过该模块，绝不产出半改写代码 |
 | 找不到 wasm/worker | 记录 `missingAssets` 并告警，不中断构建 |
 

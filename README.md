@@ -149,7 +149,7 @@ export function startScene(runtime: MiniThreeRuntime) {
 ```bash
 npm install
 npm run typecheck   # tsc --noEmit
-npm test            # vitest run (63 tests)
+npm test            # vitest run (71 tests)
 npm run build       # tsup: dist/*.js + dist/*.d.ts
 npm run check       # 以上三项
 ```
