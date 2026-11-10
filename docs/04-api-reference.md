@@ -1,6 +1,6 @@
 # 04 · API 参考
 
-> 版本：0.1.0。所有签名以 `src/**` 与 `npm run build` 生成的 `dist/*.d.ts` 为准。
+> 版本：0.1.3。所有签名以 `src/**` 与 `npm run build` 生成的 `dist/*.d.ts` 为准。
 > 子路径导入可最大化 tree-shaking；`mini-three-adapter` 是汇总入口。
 
 ## 4.1 子路径
