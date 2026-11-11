@@ -96,7 +96,8 @@ npm run release:check  # npm pack --dry-run --json，看将要发布的文件清
 
 `package.json` 已配置 `prepublishOnly: "npm run clean && npm run check"`，`npm publish` 会自动清空 `dist/` 并跑一次完整构建与测试，既不会把未构建的产物发出去，也不会带入历史 hash chunk。发布前确认：
 
-- `files` 白名单只包含 `dist/`、`README.md`、`AGENTS.md`、`llms.txt`、`docs/`（0.1.5 实测 88 个文件、解包 945 KB、tarball 254 KB）。体积主要是 `docs/` 的 Markdown 与 `dist/` 的 `.d.ts`，两者都压缩率极高，tarball 增量很小。
+- `files` 白名单只包含 `dist/`、`README.md`、`AGENTS.md`、`llms.txt`、`docs/`（0.1.5 实测 76 个文件、解包 687 KB、tarball 196 KB）。体积主要是 `docs/` 的 Markdown 与 `dist/` 的 `.d.ts`，两者都压缩率极高，tarball 增量很小。
+- 测体积前必须先 `npm run clean`（`release:check` 已包含），否则 `dist/` 里上一轮构建残留的 hash chunk 会被一起算进去，实测值会虚高。
 - `exports` 里每个子路径的 `.js` 与 `.d.ts` 都存在。
 - `CHANGELOG.md` 已补上本次版本条目。
 - `docs/04-api-reference.md` 与 `package.json exports` 一致；`docs/03-module-map.md` 与文件树一致。
