@@ -71,13 +71,26 @@ renderer.setAnimationLoop(() => {
 | --- | --- | --- |
 | 原生 `addEventListener('load'/'error')` | patch 前 `bind` 保存，patch 后直接调用原生方法 | 最优；`onload` 描述符是否存在都不影响 |
 | `onload` / `onerror` 可赋值（访问器或无描述符但可写） | 在定义 shim 访问器**之前**直接 `img.onload = forward` | 正常出图 |
+| 接受赋值但**永远不调用** | 无法从形状上识别 | 由 watchdog 兜底：2s 后按 `complete` 判定，见下 |
 | 只能读描述符、且不可赋值 | — | 走下一级 |
 | 只有 `wx.getImageInfo` | `src` 赋值时调用 `getImageInfo({ src })` | **不出图**：`getImageInfo` 只解码元数据、不填充图片像素，合成 `load` 会让 three 上传空纹理，因此改为派发带 `reason` 的 `error` |
 | 以上都没有 | 2s watchdog | 派发 `error`（`reason: 'image-events-timeout'`），不再静默挂到业务自己的超时 |
 
+**watchdog 无条件生效**：只要 `src` 被赋值就上闹钟，与宿主形态无关。原因是「槽被填上了」证明不了宿主会调用它，
+而这种宿主在 2s 之前与正常加载完全无法区分。到点时：
+
+- 宿主 `complete` 为真 → 派发 `load`（浏览器语义下 `complete` 就意味着 `load` 已经发生过），`reason: 'watchdog-complete'`；
+- 否则派发 `error`，`reason: 'image-events-timeout'`，`detail.path` 指认是哪一级入口「看起来挂上了」。
+
+真实 `load`/`error` 永远优先：终态只派发一次，闹钟在事件到达时被清掉。
+
+> 2s 是按「纹理在包内、本地解码」设定的。若业务确实用 `img.src` 直接加载**网络大图**，2s 可能不够——
+> 那种场景建议先 `wx.downloadFile` 再指向本地路径，或自己预加载后交给 `new THREE.Texture(image)`。
+
 要点：
 
 - 描述符不是唯一入口：有的宿主 `Object.getOwnPropertyDescriptor(img, 'onload')` 返回 `undefined`，但 `img.onload = fn` 仍然有效并能触发。
+- 「能赋值」也不等于「会触发」：这是 0.1.6 修的边界；不要用 `typeof img.onload === 'function'` 判断宿主是否健康。
 - `patchElement` 会覆盖 `addEventListener`，任何「用原生事件」的方案都必须在它之前保存引用，否则拿到的是 shim。
 - `src` 同样可能只是可写数据属性。这种情况下 shim 访问器会吞掉写入，`image.ts` 会临时还原宿主属性写一次再装回访问器。
 - `complete` 在 `load` 与 `error` 后都为 `true`，`decode()` 在 `error` 时 reject（与浏览器一致）。

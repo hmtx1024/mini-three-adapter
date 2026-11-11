@@ -4,6 +4,26 @@
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-11-12
+
+0.1.5 的兜底建立在「`onload` 槽被填上就说明宿主会调用它」这个假设上。宿主可能只把赋值存下来、永不调用，
+此时每一级都认为已挂上，watchdog 与 `getImageInfo` 都不会启动——比 0.1.4 的静默挂起更难查，因为它连告警都没有。
+
+### Fixed
+
+- **宿主接受 `onload` 赋值但永不调用（P0，纹理依旧无限 pending）**。watchdog 改为**无条件**：只要 `src` 被赋值就上闹钟，与宿主形态无关；真实 `load`/`error` 到达时清掉，终态仍只派发一次。
+- watchdog 到点时的判定改为看宿主 `complete`：为真则派发 `load`（`reason: 'watchdog-complete'`），否则派发 `error`（`reason: 'image-events-timeout'`，`detail.path` 指认是哪一级入口看起来挂上了）。慢但成功的加载只要在 2s 内落了 `complete` 就不会被误判。
+
+### Tests
+
+- `tests/image-events.test.ts` 13 → 16 例：新增「接受赋值但不调用」「`complete` 但静默」「真实 load 赢过 watchdog」三条宿主形态。
+- 用例从 79 增至 82。
+
+### Docs
+
+- `docs/06` §6.3.1 增加「接受赋值但永不调用」形态与 watchdog 判定规则，并说明 2s 只针对包内纹理、网络大图需预下载。
+- `docs/11` 已知限制第 8 条同步：watchdog 对所有宿主生效，>2s 的网络大图会被判失败。
+
 ## [0.1.5] - 2026-11-11
 
 图片事件桥接在部分真机上没有入口：0.1.4 只认 `getOwnPropertyDescriptor`，宿主把回调放在原生槽里时读不到，

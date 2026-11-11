@@ -100,6 +100,27 @@ function hostWithHiddenCallbackSlots(): {
   };
 }
 
+/**
+ * The remaining edge case: the host accepts `img.onload = fn` (so the slot is
+ * "wired") and then never calls it. Nothing observable distinguishes this from a
+ * load that is merely slow — only the watchdog can.
+ */
+function hostWithSilentCallbackSlots(complete = false): Record<string, unknown> {
+  const slots: Record<string, unknown> = {};
+  let src = '';
+  return {
+    width: 0,
+    height: 0,
+    get src() { return src; },
+    set src(next: string) { src = next; },
+    get onload() { return slots.onload ?? null; },
+    set onload(next: unknown) { slots.onload = next; },
+    get onerror() { return slots.onerror ?? null; },
+    set onerror(next: unknown) { slots.onerror = next; },
+    get complete() { return complete; },
+  };
+}
+
 afterEach(() => {
   vi.useRealTimers();
 });
@@ -252,6 +273,59 @@ describe('image native event bridge', () => {
     vi.advanceTimersByTime(2000);
     expect(listener).toHaveBeenCalledTimes(1);
     expect(listener.mock.calls[0]![0]).toMatchObject({ type: 'error' });
+  });
+
+  it('fails a host that accepts onload but never calls it', () => {
+    vi.useFakeTimers();
+    const raw = hostWithSilentCallbackSlots();
+    const wx = { createImage: () => raw } as unknown as WxLike;
+    const image = createImageFactory(wx).createImage();
+    const listener = vi.fn();
+    image.addEventListener('error', listener);
+
+    image.src = 'textures/normal.png';
+    // The slot accepted the forwarder, so nothing looks wrong yet.
+    expect(listener).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(2000);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener.mock.calls[0]![0]).toMatchObject({
+      type: 'error',
+      detail: { reason: 'image-events-timeout', path: 'onload' },
+    });
+    expect(image.complete).toBe(true);
+  });
+
+  it('delivers load from the watchdog when the host reports complete but stays silent', () => {
+    vi.useFakeTimers();
+    const raw = hostWithSilentCallbackSlots(true);
+    const wx = { createImage: () => raw } as unknown as WxLike;
+    const image = createImageFactory(wx).createImage();
+    const listener = vi.fn();
+    image.addEventListener('load', listener);
+
+    image.src = 'textures/normal.png';
+    vi.advanceTimersByTime(2000);
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener.mock.calls[0]![0]).toMatchObject({
+      type: 'load',
+      detail: { reason: 'watchdog-complete' },
+    });
+  });
+
+  it('lets a real load win over the watchdog', () => {
+    vi.useFakeTimers();
+    const wx = createMockWx();
+    const image = createImageFactory(wx).createImage();
+    const onload = vi.fn();
+    image.addEventListener('load', onload);
+
+    image.src = 'textures/normal.png';
+    wx.__images[0]!.__emit('load');
+    vi.advanceTimersByTime(2000);
+
+    expect(onload).toHaveBeenCalledTimes(1);
   });
 
   it('writes src through a plain data property instead of swallowing it', () => {

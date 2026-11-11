@@ -5,7 +5,7 @@
 ```bash
 npm install              # 安装依赖
 npm run typecheck        # tsc --noEmit（strict）
-npm test                 # vitest run（79 例）
+npm test                 # vitest run（82 例）
 npm test -- --watch      # 观察模式
 npm run build            # tsup：dist/*.js + *.d.ts + sourcemap
 npm run check            # typecheck + test + build
@@ -90,7 +90,7 @@ jobs:
 ### 9.5.1 发布前检查
 
 ```bash
-npm run check          # typecheck + 79 例测试 + tsup 构建
+npm run check          # typecheck + 82 例测试 + tsup 构建
 npm run release:check  # npm pack --dry-run --json，看将要发布的文件清单
 ```
 

@@ -353,24 +353,37 @@ export function createImageFactory(wx: WxLike, diagnostics?: Diagnostics): Image
     let fallbackStarted = false;
 
     /**
-     * Backstop for the fallback itself: `wx.getImageInfo` normally answers, but
-     * when it does not, nothing else will ever settle this image.
+     * Armed as soon as a `src` arrives, whatever the host shape looks like.
+     *
+     * "The callback slot accepted our function" is not proof the host will ever
+     * call it: some hosts store the assignment and stay silent forever, which is
+     * indistinguishable from a working load until the clock runs out. So the
+     * watchdog is unconditional; `finish()` clears it on either outcome, and a
+     * genuine `load`/`error` always wins because `finish()` is terminal-once.
      */
     const armWatchdog = (): void => {
       if (watchdogId !== undefined) return;
       watchdogId = setTimeout(() => {
         watchdogId = undefined;
+        // A host that reports `complete` has decoded the image even if it never
+        // reported it: browser semantics say `load` already happened.
+        if (hostComplete()) {
+          finish('load', { type: 'load', reason: 'watchdog-complete' });
+          return;
+        }
         forwardError({ type: 'error', reason: 'image-events-timeout', path: eventPath });
       }, EVENT_WATCHDOG_MS);
     };
 
     const startFallback = (src: string): void => {
-      if (eventPath || fallbackStarted || settled || failed || !src) return;
+      if (settled || failed || !src) return;
+      // Unconditional: a wired slot is not a delivered event (see armWatchdog).
+      armWatchdog();
+      if (eventPath || fallbackStarted) return;
       fallbackStarted = true;
 
       if (getImageInfo) {
         eventPath = 'getImageInfo';
-        armWatchdog();
         try {
           getImageInfo({
             src,
@@ -404,10 +417,8 @@ export function createImageFactory(wx: WxLike, diagnostics?: Diagnostics): Image
         return;
       }
 
-      // Nothing can ever settle on this host: fail after a short watchdog rather
-      // than leaving `TextureLoader` waiting for the application's own timeout.
+      // No event path and no metadata API: the verdict comes from the watchdog.
       eventPath = 'watchdog';
-      armWatchdog();
     };
     onSrcChange = startFallback;
 
