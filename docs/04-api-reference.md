@@ -1,6 +1,6 @@
 # 04 · API 参考
 
-> 版本：0.1.4。所有签名以 `src/**` 与 `npm run build` 生成的 `dist/*.d.ts` 为准。
+> 版本：0.1.5。所有签名以 `src/**` 与 `npm run build` 生成的 `dist/*.d.ts` 为准。
 > 子路径导入可最大化 tree-shaking；`mini-three-adapter` 是汇总入口。
 
 ## 4.1 子路径
@@ -174,7 +174,7 @@ function clearEarlyScopeReads(): void;
 | `*Shim` | `HTMLCanvasElementShim`、`HTMLImageElementShim`、`HTMLElementShim`、`OffscreenCanvasShim`、`ImageDataShim`、`WebGLRenderingContextShim`、`WebGL2RenderingContextShim`、`DOMRectShim` |
 | `patchCanvas(raw, options)` | 返回 `{ canvas, contexts, updateRect, element, disposers }` |
 | `createOffscreenCanvas(wx, w?, h?, options?)` | 直接创建并补丁离屏画布 |
-| `createImageFactory(wx, diagnostics?)` | `{ Image, HTMLImageElement, ImageData, createImage, createImageData, createImageBitmap: undefined }`。工厂会把底层 `wx` 图片的**原生** `onload`/`onerror` 桥接成合成事件：`img.onload = fn` 与 `addEventListener('load', fn)` 都能收到通知，`decode()` 也据此 settle |
+| `createImageFactory(wx, diagnostics?)` | `{ Image, HTMLImageElement, ImageData, createImage, createImageData, createImageBitmap: undefined }`。工厂按「原生 `addEventListener` → `onload`/`onerror` 赋值 → `wx.getImageInfo` → 2s watchdog」四级兜底把宿主事件桥接成合成事件：`img.onload = fn` 与 `addEventListener('load', fn)` 都能收到通知，`complete` 在成功/失败后都为 `true`，`decode()` 据此 resolve/reject。宿主既无事件入口也无 `getImageInfo` 时不再静默挂起，而是在 2s 内派发带 `reason` 的 `error` |
 | `createDocument(options)` / `createScreen(w, h)` / `ShimDOMRect` | 伪 DOM 容器 |
 | `PointerBridge` | `dispatch(event, opts?)`、`dispatchMouse(event)`、`setRect`、`refreshRect`、`setPointerCapture`、`releasePointerCapture`、`activePointerCount`、`dispose` |
 | `createFrameScheduler(raf, caf, options)` | `request` / `cancel` / `loop(cb)` / `setFpsCap` / `fps` / `dispose` |

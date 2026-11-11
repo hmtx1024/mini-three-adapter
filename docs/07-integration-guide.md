@@ -218,7 +218,7 @@ Page({
 | --- | --- | --- |
 | `Uncaught TypeError: Class constructor xxx cannot be invoked without 'new'`，栈顶在 `GLTFLoader.js` 的 `new TextDecoder()` 处 | 构建期把 `new TextDecoder()` 改成了 `(new __m3()).TextDecoder()` | 升级适配层；临时规避见 [`docs/05` §5.7](./05-build-plugin.md#57-调试构建问题) |
 | `SyntaxError: Unexpected token '.'`，产物里出现 `{ __m3().xxx }` | 对象简写属性被原地替换 | 同上 |
-| 纹理永远加载不出来、`ImageLoader` 卡满超时；`img.onload` 与 `addEventListener('load')` 都不触发 | 图片 shim 没有把原生 `onload` 桥接到合成事件 | 升级适配层；日志里出现 `image has no writable onload/onerror` 说明宿主图片对象不可拦截 |
+| 纹理永远加载不出来、`ImageLoader` 卡满超时；`img.onload` 与 `addEventListener('load')` 都不触发 | 图片 shim 没有把原生 `onload` 桥接到合成事件 | 升级适配层。日志里出现 `image exposes neither onload/onerror slots nor a native addEventListener` 说明宿主三种入口皆无，payload 里的宿主形状可直接贴进 issue；若出现 `wx.getImageInfo could not read` 则先查格式（WebP）与路径 |
 | 纹理"加载成功"但画面无变化、法线 / 环境贴图不生效；`texture.image` 没有 `src` 也没有宽高 | 监听器里的 `this` 是内部事件载体，`ImageLoader` 把它当成 `<img>` 存进了 `Texture.source.data` | 升级适配层（0.1.3+）。若业务里自己写过 `image.inlineHost` 取真图，可以删掉 |
 | `capabilities.webgl2 === false`，但 `#version 300 es` 能正常渲染 | 能力探测用了离屏画布，离屏与上屏能力不同 | 看 `capabilities.webgl2Source`：`'inferred'` 表示未实测；需要以实测为准时显式传 `capabilities: { webgl2: true }` |
 | `Scoped global "xxx" was read before a runtime was created` | 在 `createXxxRuntime()` 之前求值了读 `xxx` 的模块（`document` / `navigator` / `screen` 等环境全局已改为读作 `undefined`，不再抛；能抛的是 `TextDecoder`、`HTMLCanvasElement` 这类真实 API） | 改为动态 `import()`；日志里出现 `Scoped globals were read before this runtime existed` 说明特性检测走了「非浏览器」分支，同样需要调整入口顺序 |

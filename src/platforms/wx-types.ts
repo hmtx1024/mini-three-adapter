@@ -28,6 +28,20 @@ export interface WxImage {
   [key: string]: unknown;
 }
 
+export interface WxImageInfo {
+  width: number;
+  height: number;
+  path?: string;
+  type?: string;
+  orientation?: string;
+}
+
+export interface WxGetImageInfoOptions {
+  src: string;
+  success?: (info: WxImageInfo) => void;
+  fail?: (error: { errMsg?: string; [key: string]: unknown }) => void;
+}
+
 export interface WxRect {
   top: number;
   left: number;
@@ -109,6 +123,8 @@ export interface WxLike {
   }): WxCanvas;
   createImage?(): WxImage;
   createImageData?(width: number, height: number): unknown;
+  /** Metadata-only decode: proves an asset is readable without loading it. */
+  getImageInfo?(options: WxGetImageInfoOptions): void;
   getWindowInfo?(): WxWindowInfo;
   getSystemInfoSync?(): WxWindowInfo;
   onWindowResize?(listener: (res: { windowWidth: number; windowHeight: number }) => void): void;

@@ -67,6 +67,8 @@
 | `performance.now` | `wx.getPerformance` → `Date.now` 回退 | ✅ |
 | `getComputedStyle` / `matchMedia` / `screen` / `navigator` | 轻量模拟 | ⚠️ 仅够 three 使用，非完整实现 |
 | `createImageBitmap` | **故意为 `undefined`** | ✅ 让 three 走降级分支 |
+| 图片原生事件（`img.onload` / `addEventListener('load')` / `decode()`） | 三级桥接：原生 `addEventListener` → `onload` 赋值 → `wx.getImageInfo` 诊断 | 🟡 模拟器与单元测试通过；真机宿主形态差异大，见 `docs/06` §6.3 |
+| 纹理格式 | PNG / JPEG | ✅ WebP 在部分真机解码失败，见 §11.6 |
 | `FileReader` / `WebSocket` / `AudioContext` | 缺省或透传 | ⚠️ 业务需要时按 `docs/08` 扩展 |
 | `Worker` / `WebAssembly` | 透传宿主全局（`WXWebAssembly`） | 🟡 |
 | `ResizeObserver` | no-op | ⚠️ |
@@ -82,7 +84,7 @@
 | `loader_*` | GLTF / DRACO / KTX2 / OBJ / FBX | ⬜ 未回归 | 需配置 decoder 路径与分包 |
 | `postprocessing_*` | EffectComposer / bloom / SSAO | ⬜ 未回归 | 注意深度缓冲与 render target 尺寸 |
 | `animation_*` / `physics_*` | 骨骼动画 / wasm 物理 | ⬜ 未回归 | 涉及 wasm 资源预下载 |
-| 基础渲染 | `examples/wechat-minigame`、`wechat-miniprogram`、`h5` | ✅ 单元级 | 63 个 Vitest 用例覆盖画布、事件、作用域、插件 |
+| 基础渲染 | `examples/wechat-minigame`、`wechat-miniprogram`、`h5` | ✅ 单元级 | 79 个 Vitest 用例覆盖画布、事件、作用域、插件 |
 
 每回归一条，在本表追加：`场景 id | three 版本 | 基础库 | 设备 | 结果 | 失败原因 | 新增 polyfill`。
 
@@ -94,3 +96,5 @@
 4. 插件默认只改写 `node_modules` 中的三方生态代码；应用代码里直接写 `window` 不会自动改写（可开 `includeUserCode`）。
 5. 对象 URL 是 `mini-three-blob:` + `data:`，不是浏览器 `blob:`；若有库硬编码 `blob:` 前缀判断，需要适配。
 6. Worker 分包、`.wasm.br`、iOS 高性能+ 需业务按 `mini-three-assets.json` 的 `gameJsonSuggestion` 自行配置，插件不直接改 `game.json`。
+7. 纹理请使用 PNG / JPEG。**WebP 在部分真机上无法解码**（`wx.createImage` 直接触发 `error`），这与适配层无关；`mini-three-adapter` 只会在 `wx.getImageInfo` 失败时给出指向格式的告警。
+8. 图片事件桥接需要宿主提供至少一个入口（原生 `addEventListener`、可写的 `onload`/`onerror`，或 `wx.getImageInfo`）。三者都不存在的宿主只能快速失败：2s 内派发 `error`，无法出图。

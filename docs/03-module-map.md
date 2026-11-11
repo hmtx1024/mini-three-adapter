@@ -32,7 +32,7 @@
 | `src/core/runtime.ts` | **总装配**：画布补丁、scope 组装、订阅、生命周期 | `createRuntime`、`MiniThreeRuntime`、`RuntimeOptions`、`RendererHints` | 新增 runtime API、新增/移除全局项、调整启动顺序 | 几乎所有模块；`tests/runtime.test.ts` |
 | `src/core/element.ts` | 就地 DOM 属性补丁 + `Symbol.hasInstance` 注册表 | `patchElement`、`createMockClass`、`*Shim`、`normalizeRect` | three 报「DOM 属性缺失」、`instanceof` 失败 | `canvas.ts`、`image.ts`、`dom.ts` |
 | `src/core/canvas.ts` | canvas 补丁：getContext 缓存、WebGL 归一化、离屏画布 | `patchCanvas`、`createOffscreenCanvas` | 上下文丢失、扩展返回值异常、`canvas.canvas` 指向 | `dom.ts`、`runtime.ts`；`tests/runtime.test.ts` |
-| `src/core/image.ts` | Image / ImageData 工厂，blob URL → data URL，**原生 `onload`/`onerror` → 合成事件桥接** | `createImageFactory`、`ShimImageData` | 图片加载、crossOrigin、decode、事件不触发 | `platforms/*`、`dom.ts`；`tests/image-events.test.ts` |
+| `src/core/image.ts` | Image / ImageData 工厂，blob URL → data URL，**原生事件 → 合成事件桥接（四级兜底）** | `createImageFactory`、`ShimImageData` | 图片加载、crossOrigin、`complete` / `decode`、事件不触发、WebP 解码失败 | `platforms/*`、`dom.ts`；`tests/image-events.test.ts` |
 | `src/core/dom.ts` | `document` / `body` / `screen` / `DOMRect` / `OffscreenCanvas` 构造器 | `createDocument`、`createScreen`、`ShimDOMRect`、`createOffscreenCanvasCtor` | `document.createElement` 新标签、`visibilityState` | `runtime.ts` |
 | `src/core/pointer.ts` | **touch → pointer/mouse 状态机** | `PointerBridge` | 多指、capture、`tap` 无 touches、坐标换算 | `runtime.ts`、`examples/*`；`tests/runtime.test.ts` |
 | `src/core/frames.ts` | rAF 包装、delta、fpsCap、FPS 测量 | `createFrameScheduler` | 帧率限制、慢帧告警 | `runtime.ts` |
@@ -93,7 +93,7 @@
 
 ## 3.8 修改后必做
 
-1. `npm run check`（typecheck + 71 例单测 + tsup 构建）。
+1. `npm run check`（typecheck + 79 例单测 + tsup 构建）。
 2. 更新本表（若职责变化）、`docs/04-api-reference.md`（若导出变化）、`CHANGELOG.md`。
 3. 若触及架构不变量，新增或修订 `docs/adr/*.md`。
 4. 若新增了平台能力，更新 `docs/11-compat-matrix.md`。

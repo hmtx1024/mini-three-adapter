@@ -4,6 +4,33 @@
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-11-11
+
+图片事件桥接在部分真机上没有入口：0.1.4 只认 `getOwnPropertyDescriptor`，宿主把回调放在原生槽里时读不到，
+`TextureLoader` 永远不 settle，启动被业务侧超时拖长。同时补齐 `complete` / `decode()` 的失败语义。
+
+### Added
+
+- `WxLike.getImageInfo`（`WxGetImageInfoOptions` / `WxImageInfo`）：声明宿主的元数据解码能力，供图片桥接的兜底与格式诊断使用。
+
+### Fixed
+
+- **图片事件桥接只认描述符（P0，真机上所有 `TextureLoader` 纹理静默超时）**。`createImageFactory` 改为在 `patchElement` 之前抓四类入口，按「原生 `addEventListener` → 直接赋值 `onload`/`onerror` → `wx.getImageInfo` → 2s watchdog」逐级兜底：描述符是否存在不再是前提，`img.onload = fn` 能触发的宿主也能出图。
+- **`src` 为可写数据属性时写入被吞掉（P1）**。shim 的 `src` 访问器会挡住宿主自己的属性，图片永远不开始加载；现在临时还原宿主描述符写一次再装回访问器，且后续写入仍生效。
+- **退化宿主静默挂起（P1）**。三种入口都没有时不再等业务侧 8 秒超时：有 `wx.getImageInfo` 就先判定资源是否可读，再派发带 `reason` 的 `error`（`image-events-unavailable` / `getImageInfo-failed`），否则 2s 后由 watchdog 派发 `error`。`wx.getImageInfo` 不解码像素，因此**不**合成 `load`——那会让 three 上传空纹理。
+- **`complete` / `decode()` 语义（P2）**。`complete` 在 `error` 后也为 `true`；`decode()` 在失败时 reject、成功时 resolve，且不再依赖覆写用户 `onload`（之前用户在 `decode()` 之后设置 `onload` 会让它永远 pending）。同一次加载只派发一个终态事件。
+- 退化路径的 `warnOnce` 带上宿主形状快照（`onload: accessor | data | data-readonly | missing`、`addEventListener`、`getImageInfo`、`ownNames`），可直接贴进 issue。
+
+### Tests
+
+- `tests/image-events.test.ts` 从 5 例扩到 13 例，改用宿主矩阵：描述符宿主、仅原生 `addEventListener`、仅 `getImageInfo`（成功 / 失败）、三者皆无（watchdog）、`src` 数据属性、重复 `load` 去重、`error` 后 `complete`。
+- 用例从 71 增至 79。
+
+### Docs
+
+- `docs/06` 新增 §6.3.1「图片事件桥接的宿主形态」：四级兜底表、真机自证脚本、WebP 单独归因。
+- `docs/11` 增加图片事件与纹理格式两行，并把「WebP 在部分真机不可解码」写进已知限制。
+
 ## [0.1.4] - 2026-11-10
 
 0.1.3 复核报告里的两个遗留项：探测兜底的窄口子（重后果）与占位作用域的 `typeof` 抛错（潜伏）。

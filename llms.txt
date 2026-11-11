@@ -59,7 +59,7 @@
 - [tests/scope-rewrite.test.ts](./tests/scope-rewrite.test.ts): AST correctness.
 - [tests/polyfills.test.ts](./tests/polyfills.test.ts): event/blob/url/network.
 - [tests/plugin.test.ts](./tests/plugin.test.ts): plugin and assets.
-- [tests/image-events.test.ts](./tests/image-events.test.ts): native image onload/onerror bridge + decode.
+- [tests/image-events.test.ts](./tests/image-events.test.ts): host matrix for the image event bridge (native addEventListener / assignable onload / getImageInfo-only / watchdog), complete + decode semantics.
 - [tests/event-dispatch.test.ts](./tests/event-dispatch.test.ts): listener `this` / event.target / currentTarget resolve to the host element.
 - [tests/capabilities.test.ts](./tests/capabilities.test.ts): context probing fallback, screen-canvas identity guard (candidate set), webgl2Source.
 - [tests/scope.test.ts](./tests/scope.test.ts): placeholder scope before a runtime (environment globals read as undefined, early-read reporting).

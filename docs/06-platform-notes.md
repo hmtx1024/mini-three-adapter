@@ -46,7 +46,8 @@ const { startScene } = await import('./scene.js'); // scene.js 里才 import thr
 | 重复调用 `wx.createCanvas()` 导致黑屏 | 第二个画布是离屏的，不显示 | `getScreenCanvas()` 缓存；额外画布一律走 `createOffscreenCanvas` / `runtime.createCanvas()` |
 | WebGPU 相关 API 报错 | 小游戏无 WebGPU | 插件 `webgpu` 策略；默认告警 |
 | three 版本升级后控件失效 | r170+ 用 `three/addons/`，`outputColorSpace` 取代 `outputEncoding` | 示例与 `rendererHints` 使用新 API；插件 include 覆盖两种路径 |
-| `img.onload` / `addEventListener('load')` 永不触发，纹理靠超时兜底 | 图片 shim 只建了「合成事件 → 用户回调」这条边，没有「原生 load → 合成事件」 | `createImageFactory` 在 patch 前抓原生 `onload`/`onerror` 描述符并挂转发器；宿主不可拦截时 `warnOnce` 告警（`image has no writable onload/onerror`） |
+| `img.onload` / `addEventListener('load')` 永不触发，纹理靠超时兜底 | 图片 shim 只建了「合成事件 → 用户回调」这条边，没有「原生 load → 合成事件」；部分宿主的 `onload`/`onerror` 读不到描述符，但支持直接赋值 | `createImageFactory` 在 patch 前抓原生入口，按「原生 `addEventListener` → `onload` 赋值 → `wx.getImageInfo` 诊断 → 2s watchdog」四级兜底；宿主形态写入 `image-native-events` 告警的 payload |
+| 纹理是 `.webp` 但真机加载失败 | 该设备的图片解码器不支持 WebP | 纹理改用 PNG / JPEG；`wx.getImageInfo` 失败时告警会点名格式与路径 |
 | `canvas.onpointerdown = fn` 之类行内处理器不触发 | 事件方法被绑定到内部对象，`this['on'+type]` 查找落空 | `patchEventTarget` 把宿主对象作为行内处理器宿主传入 |
 | `texture.image` 是个没有 `src` 的空壳，贴图不显示 | 监听器里的 `this` 是内部 `MiniEventTarget`，three `ImageLoader` 把它当成 `<img>` 存进 `Texture.source.data` | `dispatchEvent` 把 `this`、`event.target`、`currentTarget` 全部转发到宿主元素；`event.target` 不再暴露内部监听表 |
 | 预置 `GameGlobal.screencanvas` 的宿主偶发黑屏 | 探测回退拿到的正是上屏画布，`getContext` + `WEBGL_lose_context` 把它废掉 | 无 `createOffscreenCanvas` 时干脆不兜底；兜底时按 `reservedCanvases`（本次使用的画布 + 缓存画布 + `GameGlobal.screencanvas` + `globalThis.canvas`）逐个比对身份，命中任一即放弃并退回 `webgl2Source: 'inferred'`（ADR-0008） |
@@ -59,6 +60,43 @@ renderer.setAnimationLoop(() => {
   // 仅当遇到 PMREM / 后处理黑屏时开启，会有额外开销
   if (needsDepthWorkaround) renderer.clearDepth();
 });
+```
+
+### 6.3.1 图片事件桥接的宿主形态
+
+`wx.createImage()` 返回的对象在模拟器与不同真机 / 基础库上形状不一致。「能读描述符」只是其中一种形态，
+所以 `createImageFactory` 在 `patchElement` **之前**按顺序抓取四种入口：
+
+| 宿主形态 | 抓取方式 | 结果 |
+| --- | --- | --- |
+| 原生 `addEventListener('load'/'error')` | patch 前 `bind` 保存，patch 后直接调用原生方法 | 最优；`onload` 描述符是否存在都不影响 |
+| `onload` / `onerror` 可赋值（访问器或无描述符但可写） | 在定义 shim 访问器**之前**直接 `img.onload = forward` | 正常出图 |
+| 只能读描述符、且不可赋值 | — | 走下一级 |
+| 只有 `wx.getImageInfo` | `src` 赋值时调用 `getImageInfo({ src })` | **不出图**：`getImageInfo` 只解码元数据、不填充图片像素，合成 `load` 会让 three 上传空纹理，因此改为派发带 `reason` 的 `error` |
+| 以上都没有 | 2s watchdog | 派发 `error`（`reason: 'image-events-timeout'`），不再静默挂到业务自己的超时 |
+
+要点：
+
+- 描述符不是唯一入口：有的宿主 `Object.getOwnPropertyDescriptor(img, 'onload')` 返回 `undefined`，但 `img.onload = fn` 仍然有效并能触发。
+- `patchElement` 会覆盖 `addEventListener`，任何「用原生事件」的方案都必须在它之前保存引用，否则拿到的是 shim。
+- `src` 同样可能只是可写数据属性。这种情况下 shim 访问器会吞掉写入，`image.ts` 会临时还原宿主属性写一次再装回访问器。
+- `complete` 在 `load` 与 `error` 后都为 `true`，`decode()` 在 `error` 时 reject（与浏览器一致）。
+- 退化路径的告警 payload 带宿主形状（`onload: 'missing' | 'data' | 'data-readonly' | 'accessor'`、`addEventListener`、`getImageInfo`、`ownNames`），可直接贴进 issue。
+
+真机自证（避免把宿主问题误判成路径或打包问题）：
+
+```js
+const img = wx.createImage()
+console.log({
+  ownOnload: Object.getOwnPropertyDescriptor(img, 'onload'),
+  hasAddEventListener: typeof img.addEventListener,
+  onloadType: typeof img.onload,
+  ownNames: Object.getOwnPropertyNames(img).slice(0, 16),
+})
+const probe = wx.createImage()
+probe.onload = () => console.log('native onload fired')
+probe.onerror = (e) => console.log('native error', e)
+probe.src = 'textures/normal.png'
 ```
 
 ## 6.4 尺寸 / DPR / 安全区
