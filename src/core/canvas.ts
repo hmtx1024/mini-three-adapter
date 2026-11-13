@@ -21,6 +21,12 @@ export interface PatchCanvasOptions {
   cacheContexts?: boolean;
   /** Apply defensive fixes to getExtension / drawingBuffer dimensions. */
   normalizeWebGL?: boolean;
+  /**
+   * `true` when `raw` is a real DOM canvas that already owns its event system
+   * and DOM members (browser). Only missing members are filled in, and the
+   * event target is left untouched. See ADR-0010.
+   */
+  nativeEventTarget?: boolean;
 }
 
 function findOriginalGetContext(raw: WxCanvas): (type: string, attrs?: Record<string, unknown>) => unknown {
@@ -119,18 +125,31 @@ export function patchCanvas(raw: WxCanvas, options: PatchCanvasOptions = {}): Pa
     return 'data:,';
   };
 
+  const native = options.nativeEventTarget === true;
+  const extra: PropertyDescriptorMap = {
+    // Context caching and WebGL normalisation stay ours even on a real canvas:
+    // the native getContext is re-read through findOriginalGetContext, so
+    // identity and behaviour are unchanged for the host.
+    getContext: { value: getContext, writable: true },
+  };
+  if (!native) {
+    extra.toDataURL = { value: toDataURL, writable: true };
+    // three.js reads `canvas.nodeType` / `canvas.tagName` in a few addons.
+    extra.nodeType = { value: 1 };
+    extra.tagName = { value: 'CANVAS' };
+    extra.nodeName = { value: 'CANVAS' };
+  } else if (typeof (raw as Record<string, unknown>).toDataURL !== 'function') {
+    // OffscreenCanvas has convertToBlob() instead; three still calls toDataURL
+    // on 2D scratch canvases.
+    extra.toDataURL = { value: toDataURL, writable: true };
+  }
+
   const patched = patchElement(raw, {
     rect: normalizeRect(options.rect),
     document: options.document,
     instanceOf: [HTMLCanvasElementShim, HTMLElementShim],
-    extra: {
-      getContext: { value: getContext, writable: true },
-      toDataURL: { value: toDataURL, writable: true },
-      // three.js reads `canvas.nodeType` / `canvas.tagName` in a few addons.
-      nodeType: { value: 1 },
-      tagName: { value: 'CANVAS' },
-      nodeName: { value: 'CANVAS' },
-    },
+    nativeEventTarget: native,
+    extra,
   });
 
   return {

@@ -11,6 +11,7 @@ import { promises as fs } from 'node:fs';
 import {
   DEFAULT_FORCE_UNDEF,
   rewriteGlobals,
+  type BuildSourceMap,
   type RewriteOptions,
 } from './scope-rewrite';
 import {
@@ -57,7 +58,7 @@ export interface PluginContext {
 export interface MiniThreePlugin {
   name: string;
   enforce: 'pre';
-  transform(this: PluginContext, code: string, id: string): { code: string; map: unknown } | null;
+  transform(this: PluginContext, code: string, id: string): { code: string; map: BuildSourceMap | null } | null;
   generateBundle(this: PluginContext, options: { dir?: string; file?: string }): Promise<void>;
   api: {
     report(): BuildReport;

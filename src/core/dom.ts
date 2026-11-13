@@ -78,6 +78,7 @@ export function createDocument(options: CreateDocumentOptions): DocumentLike {
       document,
       diagnostics,
       normalizeWebGL: true,
+      nativeEventTarget: binding.nativeEventTarget === true,
     });
     OffscreenCanvasShim.__instances.add(raw as object);
     return patched.canvas;
@@ -157,6 +158,7 @@ export function createOffscreenCanvasCtor(binding: PlatformBinding): unknown {
     const patched = patchCanvas(raw, {
       rect: { width, height, left: 0, top: 0, right: width, bottom: height },
       normalizeWebGL: true,
+      nativeEventTarget: binding.nativeEventTarget === true,
     });
     OffscreenCanvasShim.__instances.add(raw as object);
     return patched.canvas;

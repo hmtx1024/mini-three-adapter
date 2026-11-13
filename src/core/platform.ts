@@ -1,7 +1,7 @@
 /** Platform binding contract: everything the runtime needs from a host. */
 import type { ImageFactory } from './image';
 import type { WxCanvas, WxLike } from '../platforms/wx-types';
-import type { Capabilities, ContextType, Disposer, Rect, TouchLikeEvent } from '../types';
+import type { Capabilities, ContextType, Disposer, NativeEventInit, Rect, TouchLikeEvent } from '../types';
 
 export interface PlatformBinding {
   readonly kind: Capabilities['platform'];
@@ -11,6 +11,16 @@ export interface PlatformBinding {
   readonly rawCanvas: WxCanvas;
   readonly capabilities: Capabilities;
   readonly imageFactory: ImageFactory;
+  /**
+   * `true` when `rawCanvas` already owns a working event system (browser
+   * canvas). The runtime then leaves `addEventListener` / `dispatchEvent` and
+   * the native DOM members alone, and dispatches real DOM events instead of
+   * `MiniEventTarget` ones. Defaults to `false` (WeChat bare objects).
+   * See ADR-0010.
+   */
+  readonly nativeEventTarget?: boolean;
+  /** Build a real DOM event for `nativeEventTarget` targets. */
+  createEvent?(type: string, init: NativeEventInit): unknown;
   /** Current bounding rect of `rawCanvas`; may be async on mini programs. */
   getCanvasRect(): Rect | Promise<Rect>;
   /** Create a secondary canvas without disturbing the on-screen one. */

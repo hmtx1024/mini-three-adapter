@@ -17,7 +17,7 @@
 
 | 文件 | 职责 | 关键导出 | 改这里 | 会影响 / 测试 |
 | --- | --- | --- | --- | --- |
-| `src/polyfills/event.ts` | W3C 事件系统，`patchEventTarget` 把方法绑到内部载体但把 `this` / `event.target` / `currentTarget` 转发给宿主元素 | `MiniEvent`、`MiniPointerEvent`、`MiniMouseEvent`、`MiniEventTarget`、`patchEventTarget`、`MiniDOMException` | 事件字段缺失（如 controls 读 `movementX`）、`onxxx` 内联处理器、监听器拿不到事件目标 | `pointer.ts`、`dom.ts`；`tests/polyfills.test.ts`、`tests/event-dispatch.test.ts` |
+| `src/polyfills/event.ts` | W3C 事件系统，`patchEventTarget` 把方法绑到内部载体但把 `this` / `event.target` / `currentTarget` 转发给宿主元素；`dispatchEvent` 只对 `MiniEvent` 写 `target`（真实 DOM 事件只读，ADR-0010） | `MiniEvent`、`MiniPointerEvent`、`MiniMouseEvent`、`MiniEventTarget`、`patchEventTarget`、`MiniDOMException` | 事件字段缺失（如 controls 读 `movementX`）、`onxxx` 内联处理器、监听器拿不到事件目标 | `pointer.ts`、`dom.ts`；`tests/polyfills.test.ts`、`tests/event-dispatch.test.ts` |
 | `src/polyfills/blob-url.ts` | Blob / URL / base64 / URL 相对解析 | `MiniBlob`、`MiniURL`、`bytesToBase64`、`resolveUrl` | `createObjectURL` 的目标格式、URL 解析边界 | `image.ts` 的 `src` 解析；`tests/polyfills.test.ts` |
 | `src/polyfills/text-encoding.ts` | `atob`/`btoa`/`TextEncoder`/`TextDecoder` | 同名 | 编码边界、BOM、utf-16 | `network.ts`、`blob-url.ts`；`tests/polyfills.test.ts` |
 | `src/polyfills/network.ts` | `fetch`、`XMLHttpRequest`、`AbortController` | `createFetch`、`createXMLHttpRequestFactory`、`MiniAbortController` | `wx.request` 返回结构差异、进度事件 | `runtime.ts` 的 scope 组装；`tests/polyfills.test.ts` |
@@ -28,13 +28,13 @@
 
 | 文件 | 职责 | 关键导出 | 改这里 | 会影响 / 测试 |
 | --- | --- | --- | --- | --- |
-| `src/core/platform.ts` | **平台契约**（结构化接口，替代抽象基类） | `PlatformBinding`、`PlatformFactory` | 平台要新增能力时**先改这里** | 所有 `platforms/*`、`runtime.ts` |
-| `src/core/runtime.ts` | **总装配**：画布补丁、scope 组装、订阅、生命周期 | `createRuntime`、`MiniThreeRuntime`、`RuntimeOptions`、`RendererHints` | 新增 runtime API、新增/移除全局项、调整启动顺序 | 几乎所有模块；`tests/runtime.test.ts` |
-| `src/core/element.ts` | 就地 DOM 属性补丁 + `Symbol.hasInstance` 注册表 | `patchElement`、`createMockClass`、`*Shim`、`normalizeRect` | three 报「DOM 属性缺失」、`instanceof` 失败 | `canvas.ts`、`image.ts`、`dom.ts` |
+| `src/core/platform.ts` | **平台契约**（结构化接口，替代抽象基类）；`nativeEventTarget` / `createEvent` 声明宿主是否自带原生事件系统 | `PlatformBinding`、`PlatformFactory` | 平台要新增能力时**先改这里** | 所有 `platforms/*`、`runtime.ts` |
+| `src/core/runtime.ts` | **总装配**：画布补丁、scope 组装、订阅、生命周期 | `createRuntime`、`MiniThreeRuntime`、`RuntimeOptions`、`RendererHints` | 新增 runtime API、新增/移除全局项、调整启动顺序 | 几乎所有模块；`tests/runtime.test.ts`、`tests/native-events.test.ts` |
+| `src/core/element.ts` | 就地 DOM 属性补丁 + `Symbol.hasInstance` 注册表。原生事件目标上**只补缺失成员**，不覆盖宿主的 `style` / `getBoundingClientRect` / 事件方法 | `patchElement`、`createMockClass`、`*Shim`、`normalizeRect` | three 报「DOM 属性缺失」、`instanceof` 失败、H5 上原生成员被覆盖 | `canvas.ts`、`image.ts`、`dom.ts`；`tests/native-events.test.ts` |
 | `src/core/canvas.ts` | canvas 补丁：getContext 缓存、WebGL 归一化、离屏画布 | `patchCanvas`、`createOffscreenCanvas` | 上下文丢失、扩展返回值异常、`canvas.canvas` 指向 | `dom.ts`、`runtime.ts`；`tests/runtime.test.ts` |
 | `src/core/image.ts` | Image / ImageData 工厂，blob URL → data URL，**原生事件 → 合成事件桥接（四级兜底）** | `createImageFactory`、`ShimImageData` | 图片加载、crossOrigin、`complete` / `decode`、事件不触发、WebP 解码失败 | `platforms/*`、`dom.ts`；`tests/image-events.test.ts` |
 | `src/core/dom.ts` | `document` / `body` / `screen` / `DOMRect` / `OffscreenCanvas` 构造器 | `createDocument`、`createScreen`、`ShimDOMRect`、`createOffscreenCanvasCtor` | `document.createElement` 新标签、`visibilityState` | `runtime.ts` |
-| `src/core/pointer.ts` | **touch → pointer/mouse 状态机** | `PointerBridge` | 多指、capture、`tap` 无 touches、坐标换算 | `runtime.ts`、`examples/*`；`tests/runtime.test.ts` |
+| `src/core/pointer.ts` | **touch → pointer/mouse 状态机**；`createEvent` 存在时派发真实 DOM 事件，`nativeEventTarget` 为真时不向 scoped `document` / `window` 转派 | `PointerBridge` | 多指、capture、`tap` 无 touches、坐标换算、H5 事件对象形态 | `runtime.ts`、`examples/*`；`tests/runtime.test.ts`、`tests/native-events.test.ts` |
 | `src/core/frames.ts` | rAF 包装、delta、fpsCap、FPS 测量 | `createFrameScheduler` | 帧率限制、慢帧告警 | `runtime.ts` |
 | `src/core/window-info.ts` | 窗口信息 + DPR 封顶 + resize 广播 | `createWindowInfoStore`、`readWindowInfo` | 新 API 替代 `getWindowInfo`、安全区 | `runtime.ts`；`tests/runtime.test.ts` |
 | `src/core/capabilities.ts` | 能力探测（离屏优先，主画布回退；**不消费上屏画布**） | `detectCapabilities`、`versionAtLeast`、`webgl2Source` | 新增探测项、「探测不到」的语义 | 所有 `platforms/*`、`runtime.report()`；`tests/capabilities.test.ts` |
@@ -50,7 +50,7 @@
 | `src/platforms/wechat-common.ts` | rAF / now / touch / visibility / 离屏画布 / 能力探测共用实现 | `watchWxTouch`、`createRafPair`、`probeContext`（返回 `boolean \| undefined`；无 `createOffscreenCanvas` 时不兜底，兜底时按 `reservedCanvases` 身份拒绝探测任何候选上屏画布）等 | 微信 API 变更、探测回退策略（ADR-0007、ADR-0008） | `wechat-game.ts`、`wechat-miniprogram.ts` |
 | `src/platforms/wechat-game.ts` | 小游戏绑定 + 入口 | `createWeChatGameRuntime`、`createWeChatGameBinding`、`getScreenCanvas` | **上屏画布获取顺序**、锁帧 | `examples/wechat-minigame` |
 | `src/platforms/wechat-miniprogram.ts` | 小程序绑定（`createSelectorQuery`） | `createWeChatMiniProgramRuntime` | 选择器查询、组件作用域 `selectorCtx` | `examples/wechat-miniprogram` |
-| `src/platforms/browser.ts` | 浏览器 / Node 测试平台 | `createBrowserRuntime`、`createBrowserBinding` | H5 双端能力 | `examples/h5` |
+| `src/platforms/browser.ts` | 浏览器 / Node 测试平台；`nativeEventTarget: true` + 真实 `Event` 构造器（ADR-0010） | `createBrowserRuntime`、`createBrowserBinding` | H5 双端能力、原生事件目标 | `examples/h5`；`tests/native-events.test.ts` |
 
 ## 3.5 build（Node 侧，不进小游戏 bundle）
 
@@ -93,7 +93,7 @@
 
 ## 3.8 修改后必做
 
-1. `npm run check`（typecheck + 82 例单测 + tsup 构建）。
+1. `npm run check`（typecheck + 95 例单测 + tsup 构建）。
 2. 更新本表（若职责变化）、`docs/04-api-reference.md`（若导出变化）、`CHANGELOG.md`。
 3. 若触及架构不变量，新增或修订 `docs/adr/*.md`。
 4. 若新增了平台能力，更新 `docs/11-compat-matrix.md`。

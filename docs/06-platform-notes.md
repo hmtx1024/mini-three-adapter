@@ -51,6 +51,7 @@ const { startScene } = await import('./scene.js'); // scene.js 里才 import thr
 | `canvas.onpointerdown = fn` 之类行内处理器不触发 | 事件方法被绑定到内部对象，`this['on'+type]` 查找落空 | `patchEventTarget` 把宿主对象作为行内处理器宿主传入 |
 | `texture.image` 是个没有 `src` 的空壳，贴图不显示 | 监听器里的 `this` 是内部 `MiniEventTarget`，three `ImageLoader` 把它当成 `<img>` 存进 `Texture.source.data` | `dispatchEvent` 把 `this`、`event.target`、`currentTarget` 全部转发到宿主元素；`event.target` 不再暴露内部监听表 |
 | 预置 `GameGlobal.screencanvas` 的宿主偶发黑屏 | 探测回退拿到的正是上屏画布，`getContext` + `WEBGL_lose_context` 把它废掉 | 无 `createOffscreenCanvas` 时干脆不兜底；兜底时按 `reservedCanvases`（本次使用的画布 + 缓存画布 + `GameGlobal.screencanvas` + `globalThis.canvas`）逐个比对身份，命中任一即放弃并退回 `webgl2Source: 'inferred'`（ADR-0008） |
+| H5 上 canvas 收不到 `pointer` / `wheel`，或 `canvas.dispatchEvent(realEvent)` 抛 `Cannot set property target` | 真实 `HTMLCanvasElement` 的事件方法被 `MiniEventTarget` 覆盖，浏览器内部派发绕过了 JS 侧的私有监听表 | 0.1.7 起 `browser` 绑定声明 `nativeEventTarget: true`，事件方法与 DOM 成员不再被覆盖（ADR-0010）。升级前的旧版本只能把监听挂到真实 `document` 上绕开 `runtime.canvas` |
 
 深度缓冲补丁（应用层显式启用）：
 
@@ -91,7 +92,7 @@ renderer.setAnimationLoop(() => {
 
 - 描述符不是唯一入口：有的宿主 `Object.getOwnPropertyDescriptor(img, 'onload')` 返回 `undefined`，但 `img.onload = fn` 仍然有效并能触发。
 - 「能赋值」也不等于「会触发」：这是 0.1.6 修的边界；不要用 `typeof img.onload === 'function'` 判断宿主是否健康。
-- `patchElement` 会覆盖 `addEventListener`，任何「用原生事件」的方案都必须在它之前保存引用，否则拿到的是 shim。
+- `patchElement` 在**没有原生事件系统**的宿主上会覆盖 `addEventListener`（小程序 / 小游戏），任何「用原生事件」的方案都必须在它之前保存引用，否则拿到的是 shim。浏览器 canvas 例外：`nativeEventTarget: true` 时事件方法与 DOM 成员一律不动（[ADR-0010](./adr/0010-native-event-target-boundary.md)）。
 - `src` 同样可能只是可写数据属性。这种情况下 shim 访问器会吞掉写入，`image.ts` 会临时还原宿主属性写一次再装回访问器。
 - `complete` 在 `load` 与 `error` 后都为 `true`，`decode()` 在 `error` 时 reject（与浏览器一致）。
 - 退化路径的告警 payload 带宿主形状（`onload: 'missing' | 'data' | 'data-readonly' | 'accessor'`、`addEventListener`、`getImageInfo`、`ownNames`），可直接贴进 issue。

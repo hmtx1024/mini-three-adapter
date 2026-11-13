@@ -4,6 +4,36 @@
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-11-13
+
+### Fixed
+
+- **浏览器 / H5：真实 canvas 的 DOM 事件被适配层吞掉（P0）**。`createRuntime()` 对 `binding.rawCanvas` 无条件 `patchCanvas()`，而 `patchElement()` 又无条件执行 `patchEventTarget()`，把 `addEventListener` / `removeEventListener` / `dispatchEvent` 写在真实 `HTMLCanvasElement` 实例上，遮蔽了原生实现。后果：浏览器派发的真实 `pointer` / `touch` / `wheel` / `webglcontextlost` 不触发任何监听器；`canvas.dispatchEvent(realEvent)` 抛 `TypeError: Cannot set property target of #<Event> which has only a getter`；`canvas.style` / `getBoundingClientRect()` / `setPointerCapture()` 也被替换成非原生实现。
+  - `PlatformBinding` 新增 `nativeEventTarget` 与 `createEvent`；`browser` 绑定声明 `nativeEventTarget: true` 并提供真实 `PointerEvent` / `MouseEvent` / `Event` 构造器。
+  - `patchElement()` 在原生事件目标上跳过 `patchEventTarget()`，并按「补缺不覆盖」处理 DOM 成员：宿主已有的 `style`、`getBoundingClientRect`、`setPointerCapture`、`nodeType` 一律不动（[ADR-0010](./docs/adr/0010-native-event-target-boundary.md)）。
+  - `PointerBridge` 通过 `createEvent` 派发真实 DOM 事件；`nativeEventTarget` 为真时不再向 scoped `document` / `window` 转派（浏览器自己冒泡），`dispatchMouse({ type: 'wheel' })` 现在产出真正的 `wheel` 事件并携带 `deltaY`。
+  - `MiniEventTarget.dispatchEvent()` 只对 `MiniEvent` 实例写 `target` / `currentTarget`，真实事件不再触发只读赋值异常。
+  - `browser` 的 `watchTouch` 在宿主支持 `PointerEvent` 时不再合成触摸事件，避免每次手势被投递两遍；无 `PointerEvent` 的旧内核仍走 touch 兜底。
+  - 微信两平台行为不变：`nativeEventTarget` 缺省为 `false`，`patchEventTarget` 照旧。
+- **`mini-three-adapter/vite` 的 `transform` 返回类型与 Vite 6 不兼容（P1，示例 `vite.config.ts` 直接报 TS2769）**。`MiniThreePlugin.transform` 把 `map` 声明为 `unknown`，无法赋给 Vite 的 `SourceMapInput`。现在改用具名结构类型 `BuildSourceMap`（`src/build/scope-rewrite.ts` 导出，`magic-string` 的 `SourceMap` 结构上满足），`dist/*.d.ts` 保持自包含，不引入 `rollup` 类型依赖。
+- **示例依赖 `workspace:*` 在任何 npm 安装下都无法解析（仓库没有 workspace 配置）**。`examples/h5` 与 `examples/wechat-minigame` 改为 `"mini-three-adapter": "file:../.."`，`npm install` 会建立指向仓库根的软链接，改源码后重新 build 即可联调。
+
+### Tests
+
+- 新增 `tests/native-events.test.ts`（13 例）与 `tests/helpers/mock-native-canvas.ts`：断言原生 `addEventListener` / `dispatchEvent` / `style` / `getBoundingClientRect` 未被覆盖、宿主事件可达应用监听器与 `runtime.on('contextlost')`、bridge 派发真实 `Event`、wheel 携带 `deltaY`、不向 scoped `document` / `window` 转派，以及微信侧 shim 行为不回退。
+- 用例从 82 增至 95。
+
+### Examples
+
+- `examples/h5` 补齐 `package.json` / `vite.config.ts` / `tsconfig.json`（此前文档里的 `npm install && npx vite` 实际跑不通），并接上 `OrbitControls`：拖动旋转与滚轮缩放直接由浏览器原生事件驱动，顺带成为 ADR-0010 的可视回归入口。
+  - 已在示例目录实跑：`npm install`（24 包）→ `npm run typecheck` → `npm run build`（插件改写 69 处全局引用）→ 真实 Chromium 打开产物，球体正常渲染，鼠标拖拽产生 `pointerdown → pointermove × N → pointerup`，滚轮产生 `wheel` 且视角被 dolly 拉近。
+- 新增 `npm run verify:h5`（`scripts/verify-h5-events.mjs`）：在真实 Chromium 里给真实 `<canvas>` 打补丁，断言 13 项事件行为（原生方法未被覆盖、真实事件转发不抛错、`contextlost` 到达 runtime、bridge 派发真实 `PointerEvent`、`style` 生效）。Playwright 是可选依赖，未安装时脚本给出安装命令；`--serve-only` 只起验证页便于手动检查。
+
+### Docs
+
+- 新增 [ADR-0010](./docs/adr/0010-native-event-target-boundary.md)：原生事件目标不做 `EventTarget` 替换，限定 ADR-0004 的适用范围。
+- `docs/03` 模块表、`docs/04` 的 `patchElement` / `patchCanvas` / `PointerBridge` / `PlatformBinding`、`docs/06` 报错对照表、`docs/11` 平台支持表同步。
+
 ## [0.1.6] - 2026-11-12
 
 0.1.5 的兜底建立在「`onload` 槽被填上就说明宿主会调用它」这个假设上。宿主可能只把赋值存下来、永不调用，

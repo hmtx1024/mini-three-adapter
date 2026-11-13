@@ -8,7 +8,7 @@
  * behave like the browser instead of replaying one synthetic event per callback.
  */
 import { MiniMouseEvent, MiniPointerEvent, type MiniPointerEventInit } from '../polyfills/event';
-import type { Rect, TouchLikeEvent, TouchPoint } from '../types';
+import type { NativeEventInit, Rect, TouchLikeEvent, TouchPoint } from '../types';
 import type { Diagnostics } from './diagnostics';
 import { normalizeRect } from './element';
 
@@ -26,6 +26,14 @@ export interface PointerBridgeOptions {
   /** Also emit legacy mouse* / click events. Default true. */
   emitMouseEvents?: boolean;
   diagnostics?: Diagnostics;
+  /**
+   * `true` when `targets.element` owns a native event system. The bridge then
+   * dispatches real DOM events and never fans out to the `document` / `window`
+   * shims: the browser already bubbles the event for us. See ADR-0010.
+   */
+  nativeEventTarget?: boolean;
+  /** Build a real DOM event instead of a `MiniEvent`. */
+  createEvent?: (type: string, init: NativeEventInit) => unknown;
 }
 
 const TYPE_MAP: Record<string, string> = {
@@ -45,6 +53,20 @@ const MOUSE_TYPE_MAP: Record<string, string> = {
 function toArrayLike(value: ArrayLike<TouchPoint> | undefined): TouchPoint[] {
   if (!value) return [];
   return Array.prototype.slice.call(value) as TouchPoint[];
+}
+
+function normalizeMouseType(raw: string): string {
+  if (raw === 'wheel') return 'wheel';
+  return raw.startsWith('mouse') ? raw : `mouse${raw}`;
+}
+
+/** Native DOM events expose some fields as read-only getters. */
+function writeExtra(target: unknown, key: string, value: unknown): void {
+  try {
+    (target as Record<string, unknown>)[key] = value;
+  } catch {
+    /* read-only accessor; the host constructor already set the value */
+  }
 }
 
 export class PointerBridge {
@@ -153,7 +175,7 @@ export class PointerBridge {
 
       if (this.options.emitMouseEvents !== false) {
         const mouseType = MOUSE_TYPE_MAP[pointerType] ?? 'mouseup';
-        const mouse = new MiniMouseEvent(mouseType, {
+        const mouse = this.makeMouse(mouseType, {
           ...init,
           button: pointerType === 'pointerdown' ? 0 : 0,
           buttons,
@@ -177,7 +199,7 @@ export class PointerBridge {
       const point = points[0];
       if (point) {
         const coords = this.toCoords(point, event);
-        this.fanout(new MiniMouseEvent('click', {
+        this.fanout(this.makeMouse('click', {
           pointerId: 1,
           clientX: coords.x,
           clientY: coords.y,
@@ -192,12 +214,21 @@ export class PointerBridge {
   }
 
   /** Convenience for mouse events coming from WeChat devtools / PC. */
-  dispatchMouse(event: { type: string; x?: number; y?: number; clientX?: number; clientY?: number; button?: number; deltaY?: number }): void {
+  dispatchMouse(event: {
+    type: string;
+    x?: number;
+    y?: number;
+    clientX?: number;
+    clientY?: number;
+    button?: number;
+    deltaY?: number;
+    deltaMode?: number;
+  }): void {
     const rect = this.rect;
     const x = event.clientX ?? event.x ?? 0;
     const y = event.clientY ?? event.y ?? 0;
-    const type = event.type.startsWith('mouse') ? event.type : `mouse${event.type}`;
-    const mouse = new MiniMouseEvent(type, {
+    const type = normalizeMouseType(event.type);
+    const mouse = this.makeMouse(type, {
       pointerId: 1,
       clientX: x,
       clientY: y,
@@ -206,8 +237,13 @@ export class PointerBridge {
       button: event.button ?? 0,
       buttons: type === 'mouseup' ? 0 : 1,
       pointerType: 'mouse',
+      ...(type === 'wheel' ? { deltaY: event.deltaY ?? 0, deltaMode: event.deltaMode ?? 0 } : {}),
     });
-    (mouse as unknown as Record<string, unknown>).wheelDelta = event.deltaY ?? 0;
+    if (type === 'wheel') {
+      // Mini events have no deltaY slot; native WheelEvents already carry it.
+      writeExtra(mouse, 'deltaY', event.deltaY ?? 0);
+      writeExtra(mouse, 'wheelDelta', event.deltaY ?? 0);
+    }
     this.fanout(mouse, 1);
   }
 
@@ -260,27 +296,46 @@ export class PointerBridge {
     pointerId: number,
     init: MiniPointerEventInit = {},
   ): void {
-    const ev = new MiniPointerEvent(type, { ...init, pointerId });
+    this.fanout(this.makePointer(type, { ...init, pointerId }), pointerId);
+  }
+
+  private makePointer(type: string, init: NativeEventInit): unknown {
+    if (this.options.createEvent) return this.options.createEvent(type, init);
+    const ev = new MiniPointerEvent(type, init as MiniPointerEventInit);
     ev.target = this.options.targets.element;
-    this.fanout(ev, pointerId);
+    return ev;
+  }
+
+  private makeMouse(type: string, init: NativeEventInit): unknown {
+    if (this.options.createEvent) return this.options.createEvent(type, init);
+    const ev = new MiniMouseEvent(type, init as MiniPointerEventInit);
+    ev.target = this.options.targets.element;
+    return ev;
   }
 
   private fanout(
-    event: MiniPointerEvent | MiniMouseEvent,
+    event: unknown,
     pointerId: number,
     propagateOverride?: boolean,
   ): void {
+    const native = this.options.nativeEventTarget === true;
     const propagate = propagateOverride ?? this.options.propagate ?? true;
     const captured = this.captured.get(pointerId);
     const targets = captured
       ? [captured]
-      : [this.options.targets.element, this.options.targets.document, this.options.targets.window];
+      : native
+        // The host bubbles the event itself; the document/window here are
+        // scoped shims, not the real ones.
+        ? [this.options.targets.element]
+        : [this.options.targets.element, this.options.targets.document, this.options.targets.window];
     for (const target of targets) {
       if (!target) continue;
       if (!propagate && target !== this.options.targets.element && target !== captured) continue;
-      (event as { currentTarget?: unknown }).currentTarget = target;
+      // `currentTarget` is a read-only getter on real DOM events; only the
+      // Mini event carrier may be authored by us.
+      if (!native) (event as { currentTarget?: unknown }).currentTarget = target;
       target.dispatchEvent(event);
-      if (event.cancelBubble) break;
+      if ((event as { cancelBubble?: boolean }).cancelBubble) break;
     }
   }
 }

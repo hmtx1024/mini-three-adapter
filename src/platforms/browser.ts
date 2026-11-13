@@ -5,13 +5,72 @@
  * The whole point of scoped globals is that the SAME application code can run
  * here without uninstalling a `window` shim first.
  */
-import type { Capabilities, ContextType, Disposer, Rect, TouchLikeEvent } from '../types';
+import type { Capabilities, ContextType, Disposer, NativeEventInit, Rect, TouchLikeEvent } from '../types';
 import type { PlatformBinding } from '../core/platform';
 import { createRuntime, type MiniThreeRuntime, type RuntimeOptions } from '../core/runtime';
 import { detectCapabilities } from '../core/capabilities';
 import { createDiagnostics, type Diagnostics } from '../core/diagnostics';
 import { createImageFactory } from '../core/image';
+import { patchEventTarget } from '../polyfills/event';
 import type { WxCanvas, WxLike, WxWindowInfo } from './wx-types';
+
+type NativeEventCtor = new (type: string, init?: Record<string, unknown>) => object;
+
+function hostEvents(): {
+  PointerEvent?: NativeEventCtor;
+  MouseEvent?: NativeEventCtor;
+  WheelEvent?: NativeEventCtor;
+  Event?: NativeEventCtor;
+} {
+  return globalThis as unknown as {
+    PointerEvent?: NativeEventCtor;
+    MouseEvent?: NativeEventCtor;
+    WheelEvent?: NativeEventCtor;
+    Event?: NativeEventCtor;
+  };
+}
+
+/**
+ * Specialised constructors only. Falling back to `Event` here would silently
+ * drop `clientX` / `pointerId`, because `new Event(type, init)` ignores them;
+ * the generic path below fills those fields explicitly instead.
+ */
+function ctorFor(type: string): NativeEventCtor | undefined {
+  const host = hostEvents();
+  if (type.startsWith('pointer')) return host.PointerEvent;
+  if (type === 'wheel') return host.WheelEvent ?? host.MouseEvent;
+  if (type.startsWith('mouse') || type === 'click') return host.MouseEvent;
+  return undefined;
+}
+
+/**
+ * Build a real DOM event. Falls back to `Event` plus own properties when the
+ * host lacks the specialised constructor (old WebViews, Node tests): a plain
+ * `Event` is what `dispatchEvent` accepts, and the extra fields keep readers
+ * like OrbitControls working.
+ */
+function createNativeEvent(type: string, init: NativeEventInit): unknown {
+  const Ctor = ctorFor(type);
+  if (Ctor) {
+    try {
+      return new Ctor(type, init as Record<string, unknown>);
+    } catch {
+      /* constructor rejected a field; use the generic path below */
+    }
+  }
+  const Base = hostEvents().Event;
+  if (!Base) return { type, ...init };
+  const base = new Base(type, { bubbles: init.bubbles, cancelable: init.cancelable });
+  for (const [key, value] of Object.entries(init)) {
+    if (key in base) continue;
+    try {
+      Object.defineProperty(base, key, { value, configurable: true, enumerable: true, writable: true });
+    } catch {
+      /* non-extensible host event */
+    }
+  }
+  return base;
+}
 
 export interface BrowserPlatformOptions {
   canvas?: HTMLCanvasElement;
@@ -20,7 +79,7 @@ export interface BrowserPlatformOptions {
 }
 
 function createMockCanvas(width = 1, height = 1): WxCanvas {
-  return {
+  const canvas: WxCanvas = {
     width,
     height,
     getContext: () => ({
@@ -30,6 +89,10 @@ function createMockCanvas(width = 1, height = 1): WxCanvas {
     }),
     toDataURL: () => 'data:,',
   };
+  // No `document` (Node tests): this stand-in has no native event system, so
+  // give it one before the runtime treats it as a native target.
+  patchEventTarget(canvas);
+  return canvas;
 }
 
 function browserWx(): WxLike {
@@ -120,6 +183,10 @@ export function createBrowserBinding(options: BrowserPlatformOptions = {}): Plat
   };
 
   const watchTouch = (handler: (event: TouchLikeEvent) => void): Disposer => {
+    // A real canvas owns a trusted pointer stream already. Synthesising a
+    // second one from touch* would double-deliver every gesture, so only old
+    // hosts without PointerEvent fall back to the bridge.
+    if (typeof hostEvents().PointerEvent === 'function') return () => undefined;
     const element = rawCanvas as unknown as HTMLCanvasElement;
     if (typeof element.addEventListener !== 'function') return () => undefined;
     const names = ['touchstart', 'touchmove', 'touchend', 'touchcancel'];
@@ -143,6 +210,10 @@ export function createBrowserBinding(options: BrowserPlatformOptions = {}): Plat
     wx,
     rawCanvas,
     capabilities,
+    // A browser canvas already owns its event system: the runtime must not
+    // replace it. See ADR-0010.
+    nativeEventTarget: true,
+    createEvent: createNativeEvent,
     imageFactory: createImageFactory(wx, diagnostics),
     getCanvasRect,
     createOffscreenCanvas: (width: number, height: number, _type: ContextType) => {

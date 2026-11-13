@@ -7,10 +7,16 @@
     <style>
       html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #101820; }
       #gl { width: 100%; height: 100%; display: block; touch-action: none; }
+      #hint {
+        position: fixed; left: 12px; bottom: 12px; margin: 0;
+        font: 12px/1.6 -apple-system, system-ui, sans-serif;
+        color: #8aa0b4; pointer-events: none; user-select: none;
+      }
     </style>
   </head>
   <body>
     <canvas id="gl"></canvas>
+    <p id="hint">拖动旋转 · 滚轮缩放（OrbitControls 直接监听原生 canvas 事件）</p>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

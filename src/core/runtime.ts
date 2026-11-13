@@ -168,12 +168,14 @@ export async function createRuntime(
     documentRef,
   });
 
+  const nativeEvents = binding.nativeEventTarget === true;
   const patched = patchCanvas(binding.rawCanvas, {
     rect: initialRect,
     document,
     diagnostics,
     cacheContexts: options.cacheContexts ?? true,
     normalizeWebGL: options.normalizeWebGL ?? true,
+    nativeEventTarget: nativeEvents,
   });
   const canvas = patched.canvas;
 
@@ -274,20 +276,29 @@ export async function createRuntime(
   scope.WebAssembly = host.WebAssembly ?? host.WXWebAssembly ?? undefined;
 
   // --- input ---------------------------------------------------------------
+  const createEvent = nativeEvents && typeof binding.createEvent === 'function'
+    ? binding.createEvent.bind(binding)
+    : undefined;
   const bridge = new PointerBridge({
     getRect: () => canvas.getBoundingClientRect() as Rect,
     targets: { element: canvas as unknown as { dispatchEvent(event: unknown): boolean }, document, window: scope },
     propagate: options.propagatePointerEvents ?? true,
     emitMouseEvents: options.emitMouseEvents ?? true,
+    nativeEventTarget: nativeEvents,
+    ...(createEvent ? { createEvent } : {}),
     diagnostics,
   });
 
   // Let controls call setPointerCapture / releasePointerCapture meaningfully.
-  Object.defineProperties(canvas, {
-    setPointerCapture: { value: (id: number) => bridge.setPointerCapture(id, canvas as never), configurable: true },
-    releasePointerCapture: { value: (id: number) => bridge.releasePointerCapture(id), configurable: true },
-    hasPointerCapture: { value: (id: number) => bridge.activePointerCount > 0 && id >= 0, configurable: true },
-  });
+  // A real canvas owns these already; overwriting them would disable the
+  // browser's own pointer capture.
+  if (!nativeEvents) {
+    Object.defineProperties(canvas, {
+      setPointerCapture: { value: (id: number) => bridge.setPointerCapture(id, canvas as never), configurable: true },
+      releasePointerCapture: { value: (id: number) => bridge.releasePointerCapture(id), configurable: true },
+      hasPointerCapture: { value: (id: number) => bridge.activePointerCount > 0 && id >= 0, configurable: true },
+    });
+  }
 
   const emitter = new Map<keyof RuntimeEvents, Set<(...args: never[]) => void>>();
   const emit = <K extends keyof RuntimeEvents>(name: K, ...args: Parameters<RuntimeEvents[K]>): void => {
@@ -377,6 +388,7 @@ export async function createRuntime(
         rect: { width, height, left: 0, top: 0, right: width, bottom: height },
         document,
         diagnostics,
+        nativeEventTarget: nativeEvents,
       });
       return p.canvas;
     },

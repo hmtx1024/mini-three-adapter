@@ -15,3 +15,6 @@ tsup.config.bundled_*.mjs
 *.timestamp-*.mjs
 examples/*/dist/
 examples/*/node_modules/
+
+# Playwright MCP scratch output
+.playwright-mcp/

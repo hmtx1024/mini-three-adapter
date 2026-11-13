@@ -13,6 +13,7 @@
 | [0007](./0007-capability-probe-fallback.md) | 能力探测允许主画布回退，`undefined` 表示「无法探测」 | Accepted（部分被 0008 收紧） |
 | [0008](./0008-probe-fallback-boundary.md) | 无离屏 API 不兜底；身份基准取候选上屏画布全集 | Accepted |
 | [0009](./0009-placeholder-scope-environment-globals.md) | 占位作用域的环境全局读作 `undefined`，早读改为启动时点名 | Accepted |
+| [0010](./0010-native-event-target-boundary.md) | 原生事件目标不做 EventTarget 替换，`patchElement` 改为补缺不覆盖 | Accepted |
 
 模板（新增 ADR 时复制）：
 

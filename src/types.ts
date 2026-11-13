@@ -87,6 +87,19 @@ export interface MiniPointerEvent {
 
 export type EventListenerLike = (event: unknown) => void;
 
+/**
+ * Fields used when a platform builds a real DOM event for a native event
+ * target (browser canvas). Values are forwarded to the host constructor and,
+ * when the constructor is missing, defined on a plain `Event` instance.
+ */
+export interface NativeEventInit {
+  bubbles?: boolean;
+  cancelable?: boolean;
+  composed?: boolean;
+  /** Event-family specific fields: `pointerId`, `clientX`, `button`, `deltaY` ... */
+  [key: string]: unknown;
+}
+
 export interface EventTargetLike {
   addEventListener(type: string, listener: EventListenerLike, options?: unknown): void;
   removeEventListener(type: string, listener: EventListenerLike, options?: unknown): void;

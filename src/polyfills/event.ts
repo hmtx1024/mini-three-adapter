@@ -225,8 +225,14 @@ export class MiniEventTarget implements EventTargetLike {
     // so leaking the carrier gives it an object with no pixels.
     const host = (this.inlineHost ?? this) as Record<string, unknown>;
     const target = host as unknown as object;
-    if (ev.target == null) ev.target = target;
-    ev.currentTarget = target;
+    // Only the mini event carrier is ours to author. A real DOM `Event` exposes
+    // `target` / `currentTarget` as getter-only accessors, and assigning to them
+    // throws in strict mode (ESM) — which used to abort the whole dispatch.
+    const owned = ev instanceof MiniEvent;
+    if (owned) {
+      if (ev.target == null) ev.target = target;
+      ev.currentTarget = target;
+    }
 
     const set = this.listeners.get(ev.type);
     if (set) {
@@ -243,7 +249,7 @@ export class MiniEventTarget implements EventTargetLike {
     const inline = host['on' + ev.type];
     if (typeof inline === 'function') (inline as (e: unknown) => void).call(host, ev);
 
-    ev.currentTarget = null;
+    if (owned) ev.currentTarget = null;
     return !ev.defaultPrevented;
   }
 

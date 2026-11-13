@@ -176,7 +176,7 @@ Page({
 | --- | --- | --- | --- |
 | 微信小游戏 | `createWeChatGameRuntime()` | 自动 | 唯一上屏画布，自动获取并缓存 |
 | 微信小程序 | `createWeChatMiniProgramRuntime({ selector, selectorCtx })` | WXML 转发到 `handleTouch` | `createSelectorQuery` 异步取节点 |
-| 浏览器 / H5 | `createBrowserRuntime({ canvas })` | 自动 | 真实 DOM canvas |
+| 浏览器 / H5 | `createBrowserRuntime({ canvas })` | 浏览器原生 `pointer*` / `wheel`，无需接线 | 真实 DOM canvas（事件目标不被替换，ADR-0010） |
 
 三端返回的都是同一个 `MiniThreeRuntime`，因此 `scene.ts` 可以完全复用。
 
@@ -223,3 +223,4 @@ Page({
 | `capabilities.webgl2 === false`，但 `#version 300 es` 能正常渲染 | 能力探测用了离屏画布，离屏与上屏能力不同 | 看 `capabilities.webgl2Source`：`'inferred'` 表示未实测；需要以实测为准时显式传 `capabilities: { webgl2: true }` |
 | `Scoped global "xxx" was read before a runtime was created` | 在 `createXxxRuntime()` 之前求值了读 `xxx` 的模块（`document` / `navigator` / `screen` 等环境全局已改为读作 `undefined`，不再抛；能抛的是 `TextDecoder`、`HTMLCanvasElement` 这类真实 API） | 改为动态 `import()`；日志里出现 `Scoped globals were read before this runtime existed` 说明特性检测走了「非浏览器」分支，同样需要调整入口顺序 |
 | 触摸事件收不到 | 小程序未转发 `bindtouch*`，或小游戏在 runtime 之后才注册监听 | 见 [`docs/06`](./06-platform-notes.md) 与 §7.5 |
+| H5 上 canvas 收不到 `pointer` / `wheel`，`OrbitControls` 拖不动 | 旧版本把 `MiniEventTarget` 打在真实 `HTMLCanvasElement` 上，浏览器内部派发绕过了 JS 侧监听表 | 升级到声明 `nativeEventTarget` 的版本（ADR-0010）；旧版本只能把监听挂到真实 `document`。可跑 `npm run verify:h5` 自检 |

@@ -168,15 +168,15 @@ function clearEarlyScopeReads(): void;
 
 | API | 签名 / 说明 |
 | --- | --- |
-| `patchElement(instance, options)` | 就地补 DOM 属性，返回 `{ element, updateRect, disposers }` |
+| `patchElement(instance, options)` | 就地补 DOM 属性，返回 `{ element, updateRect, disposers }`。`options.nativeEventTarget: true` 表示目标自带原生事件系统：跳过 `patchEventTarget`，且只补**缺失**的成员（`style` / `getBoundingClientRect` / `setPointerCapture` 等留给宿主），见 [ADR-0010](./adr/0010-native-event-target-boundary.md) |
 | `createMockClass(name)` | 生成带 `Symbol.hasInstance` + `WeakSet` 的构造器 shim |
 | `markAs(ctor, obj)` / `isMarked(ctor, obj)` | 注册 / 查询 instanceof 关系 |
 | `*Shim` | `HTMLCanvasElementShim`、`HTMLImageElementShim`、`HTMLElementShim`、`OffscreenCanvasShim`、`ImageDataShim`、`WebGLRenderingContextShim`、`WebGL2RenderingContextShim`、`DOMRectShim` |
-| `patchCanvas(raw, options)` | 返回 `{ canvas, contexts, updateRect, element, disposers }` |
+| `patchCanvas(raw, options)` | 返回 `{ canvas, contexts, updateRect, element, disposers }`。`nativeEventTarget` 透传给 `patchElement`；无论哪种模式都接管 `getContext`（上下文缓存 + WebGL 归一化） |
 | `createOffscreenCanvas(wx, w?, h?, options?)` | 直接创建并补丁离屏画布 |
 | `createImageFactory(wx, diagnostics?)` | `{ Image, HTMLImageElement, ImageData, createImage, createImageData, createImageBitmap: undefined }`。工厂按「原生 `addEventListener` → `onload`/`onerror` 赋值 → `wx.getImageInfo` → 2s watchdog」四级兜底把宿主事件桥接成合成事件：`img.onload = fn` 与 `addEventListener('load', fn)` 都能收到通知，`complete` 在成功/失败后都为 `true`，`decode()` 据此 resolve/reject。watchdog 对所有宿主无条件生效：`src` 赋值后 2s 内没有真实事件时，`complete` 为真则派发 `load`，否则派发带 `reason` 的 `error`，不会再无限 pending |
 | `createDocument(options)` / `createScreen(w, h)` / `ShimDOMRect` | 伪 DOM 容器 |
-| `PointerBridge` | `dispatch(event, opts?)`、`dispatchMouse(event)`、`setRect`、`refreshRect`、`setPointerCapture`、`releasePointerCapture`、`activePointerCount`、`dispose` |
+| `PointerBridge` | `dispatch(event, opts?)`、`dispatchMouse(event)`、`setRect`、`refreshRect`、`setPointerCapture`、`releasePointerCapture`、`activePointerCount`、`dispose`。构造选项 `createEvent(type, init)` 存在时派发**真实 DOM 事件**而不是 `MiniEvent`；`nativeEventTarget: true` 时不再向 `document` / `window` 转派（浏览器自己冒泡），见 [ADR-0010](./adr/0010-native-event-target-boundary.md) |
 | `createFrameScheduler(raf, caf, options)` | `request` / `cancel` / `loop(cb)` / `setFpsCap` / `fps` / `dispose` |
 | `createWindowInfoStore(wx, options)` | `info` / `refresh()` / `onChange()` / `setPixelRatioCap()` / `dispose()` |
 | `detectCapabilities(wx, platform, options)` / `versionAtLeast(a, b)` | 能力探测。`options.probeContext(type)` 返回 `true` / `false` / `undefined`，**`undefined` 表示「探测不到」而不是「不支持」**，此时 `webgl2` 按基础库版本推断并在 `webgl2Source` 里标记为 `'inferred'` |
@@ -192,6 +192,10 @@ interface PlatformBinding {
   readonly rawCanvas: WxCanvas;
   readonly capabilities: Capabilities;
   readonly imageFactory: ImageFactory;
+  /** true = rawCanvas 自带原生事件系统（浏览器）。缺省 false（微信裸对象）。 */
+  readonly nativeEventTarget?: boolean;
+  /** nativeEventTarget 为真时构造真实 DOM 事件。 */
+  createEvent?(type: string, init: NativeEventInit): unknown;
   getCanvasRect(): Rect | Promise<Rect>;
   createOffscreenCanvas(w: number, h: number, type: ContextType): WxCanvas;
   watchTouch(handler: (e: TouchLikeEvent) => void): Disposer;
@@ -203,6 +207,8 @@ interface PlatformBinding {
 }
 ```
 
+`nativeEventTarget` 决定的是**归属**而不是能力：为真时 `addEventListener` / `dispatchEvent` / `style` / `getBoundingClientRect` 全部留给宿主，适配层只在缺失时补；为假时按 [ADR-0004](./adr/0004-in-place-patching.md) 用 `MiniEventTarget` 接管。自己实现新平台时，如果宿主是裸对象（小程序、小游戏、原生渲染层）就保持缺省；只有目标本身就是标准 DOM 元素时才置真。
+
 ---
 
 ## 4.5 polyfills 子路径
@@ -210,7 +216,7 @@ interface PlatformBinding {
 | API | 说明 |
 | --- | --- |
 | `MiniEvent` / `MiniCustomEvent` / `MiniPointerEvent` / `MiniMouseEvent` / `MiniMessageEvent` / `MiniProgressEvent` / `MiniDOMException` | 事件对象 |
-| `MiniEventTarget` / `patchEventTarget(obj)` | 事件目标；`patchEventTarget` 不改变对象身份。监听器被调用时 `this`、`event.target`、`event.currentTarget` 都是**宿主元素**而不是内部载体——three 的 `ImageLoader` 用 `this` 取 `<img>` 当纹理源，拿错对象就等于没有像素 |
+| `MiniEventTarget` / `patchEventTarget(obj)` | 事件目标；`patchEventTarget` 不改变对象身份。监听器被调用时 `this`、`event.target`、`event.currentTarget` 都是**宿主元素**而不是内部载体——three 的 `ImageLoader` 用 `this` 取 `<img>` 当纹理源，拿错对象就等于没有像素。`dispatchEvent()` 只对 `MiniEvent` 实例写 `target` / `currentTarget`：真实 DOM `Event` 的这两个字段是只读访问器，写入会在严格模式下抛错（见 ADR-0010） |
 | `MiniBlob` | `bytes()`、`arrayBuffer()`、`text()`、`slice()`、`dataURL()`、`size`、`type` |
 | `MiniURL` | `createObjectURL` / `revokeObjectURL` / `resolveObjectURL` / `clearObjectURLs`；构造器支持相对路径解析 |
 | `MiniURLSearchParams` | `get` / `set` / `toString` |

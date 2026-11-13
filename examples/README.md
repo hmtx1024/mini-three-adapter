@@ -27,10 +27,10 @@ cd examples/wechat-minigame && npm install && npm run build
 # 然后用微信开发者工具（小游戏模式）打开 examples/wechat-minigame，miniprogramRoot = dist/
 
 # H5
-cd examples/h5 && npm install && npx vite --host
+cd examples/h5 && npm install && npm run dev
 ```
 
-> 示例中的 `mini-three-adapter: "workspace:*"` 用于在本仓库内直接联调源码。把示例目录单独拷出去运行时，改成 `"mini-three-adapter": "^0.1.0"`（或直接 `npm i mini-three-adapter`），无需先在仓库根目录构建。
+> 示例里的 `mini-three-adapter: "file:../.."` 指向仓库根，`npm install` 会建立软链接，改源码后重新 `npm run build` 即可联调。把示例目录单独拷出去运行时，改成 `"mini-three-adapter": "^0.1.0"`（或直接 `npm i mini-three-adapter`），无需先在仓库根目录构建。
 
 ## 事件接线差异
 
@@ -38,4 +38,12 @@ cd examples/h5 && npm install && npx vite --host
 | --- | --- | --- |
 | 小游戏 | `wx.onTouch*` | 无，`watchTouch` 自动订阅 |
 | 小程序 | WXML `bindtouchstart` 等 | `onTouch(e) { this.runtime?.handleTouch(e) }` |
-| 浏览器 | DOM `touchstart` 等 | 无，`watchTouch` 自动订阅 |
+| 浏览器 | DOM 原生的 `pointer*` / `wheel` / `touch*` | 无。`runtime.canvas` 就是真实 `<canvas>`，事件目标未被替换（[ADR-0010](../docs/adr/0010-native-event-target-boundary.md)），三方控件直接监听即可 |
+
+H5 示例接了 `OrbitControls`：拖动旋转、滚轮缩放都由浏览器原生派发，没有任何 `handleTouch` 转发。要快速验证这条链路（需要已构建 `dist/`）：
+
+```bash
+npm run build && npm run verify:h5
+```
+
+脚本会在真实 Chromium 里给一个真实 `<canvas>` 打补丁，断言原生事件方法未被覆盖、真实 `PointerEvent` 转发不抛错、`webglcontextlost` 能到达 `runtime.on`、`PointerBridge` 派发的是真实 `PointerEvent`。Playwright 是它的可选依赖，未安装时脚本会给出安装命令。

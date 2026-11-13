@@ -46,7 +46,7 @@
 | --- | --- | --- | --- |
 | 微信小游戏 | `mini-three-adapter/wechat-game` | ✅ 单元级 | 自动订阅 `wx.onTouch*`；完整示例 |
 | 微信小程序（`<canvas type="webgl2">`） | `mini-three-adapter/wechat-miniprogram` | 🟡 | 需 WXML 转发 `bindtouch*`；`selectorCtx` 传组件实例 |
-| 浏览器 / H5 双端 | `mini-three-adapter/browser` | ✅ 单元级 | 真实 DOM 不被覆盖；可跑 Node 测试 |
+| 浏览器 / H5 双端 | `mini-three-adapter/browser` | ✅ 单元级 | `globalThis` 不被覆盖；canvas 的原生事件目标与 DOM 成员同样保留（ADR-0010，`nativeEventTarget`） |
 | 其他小程序 / 小游戏平台 | 自定义 `PlatformBinding` | 🟡 框架就绪 | 按 [`docs/08`](./08-extension-guide.md#81-新增一个平台) 实现 |
 | WebView 套壳 | 不在范围内 | ❌ | 本方案用于非 WebView 原生渲染 |
 
@@ -84,7 +84,7 @@
 | `loader_*` | GLTF / DRACO / KTX2 / OBJ / FBX | ⬜ 未回归 | 需配置 decoder 路径与分包 |
 | `postprocessing_*` | EffectComposer / bloom / SSAO | ⬜ 未回归 | 注意深度缓冲与 render target 尺寸 |
 | `animation_*` / `physics_*` | 骨骼动画 / wasm 物理 | ⬜ 未回归 | 涉及 wasm 资源预下载 |
-| 基础渲染 | `examples/wechat-minigame`、`wechat-miniprogram`、`h5` | ✅ 单元级 | 82 个 Vitest 用例覆盖画布、事件、作用域、插件 |
+| 基础渲染 | `examples/wechat-minigame`、`wechat-miniprogram`、`h5` | ✅ 单元级 | 95 个 Vitest 用例覆盖画布、事件、作用域、插件 |
 
 每回归一条，在本表追加：`场景 id | three 版本 | 基础库 | 设备 | 结果 | 失败原因 | 新增 polyfill`。
 

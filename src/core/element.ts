@@ -75,6 +75,13 @@ export interface PatchElementOptions<T extends object> {
   instanceOf?: Array<{ __instances: WeakSet<object> }>;
   /** Called on `setAttribute(name, value)`. */
   onSetAttribute?: (name: string, value: unknown, element: T) => void;
+  /**
+   * `true` when the object already owns a working event system and real DOM
+   * members (browser canvas). In that mode only missing members are defined:
+   * `addEventListener` / `style` / `getBoundingClientRect` ... are left to the
+   * host. See ADR-0010.
+   */
+  nativeEventTarget?: boolean;
 }
 
 function define(target: object, key: string, descriptor: PropertyDescriptor): void {
@@ -94,6 +101,7 @@ export function patchElement<T extends object>(
     throw new TypeError('[mini-three-adapter] patchElement expects an object');
   }
   let rect: Rect = { ...options.rect };
+  const native = options.nativeEventTarget === true;
 
   const style = {} as CanvasStyleLike;
   define(style, 'width', { get: () => `${rect.width}px`, set: (v: string) => {
@@ -109,33 +117,43 @@ export function patchElement<T extends object>(
   style.cursor = 'default';
   style.touchAction = 'none';
 
-  define(instance, 'style', { value: style, writable: true });
-  define(instance, 'clientTop', { get: () => 0 });
-  define(instance, 'clientLeft', { get: () => 0 });
-  define(instance, 'clientWidth', { get: () => rect.width });
-  define(instance, 'clientHeight', { get: () => rect.height });
-  define(instance, 'offsetTop', { get: () => rect.top });
-  define(instance, 'offsetLeft', { get: () => rect.left });
-  define(instance, 'offsetWidth', { get: () => rect.width });
-  define(instance, 'offsetHeight', { get: () => rect.height });
-  define(instance, 'getBoundingClientRect', { value: () => ({ ...rect }), writable: true });
-  define(instance, 'setAttribute', { value: (name: string, value: unknown) => {
+  /**
+   * Native targets keep everything the host already provides: overwriting
+   * `style` / `getBoundingClientRect` / `setPointerCapture` turns a live DOM
+   * element into a static snapshot. Only fill gaps.
+   */
+  const defineMember = (key: string, descriptor: PropertyDescriptor): void => {
+    if (native && key in instance) return;
+    define(instance, key, descriptor);
+  };
+
+  defineMember('style', { value: style, writable: true });
+  defineMember('clientTop', { get: () => 0 });
+  defineMember('clientLeft', { get: () => 0 });
+  defineMember('clientWidth', { get: () => rect.width });
+  defineMember('clientHeight', { get: () => rect.height });
+  defineMember('offsetTop', { get: () => rect.top });
+  defineMember('offsetLeft', { get: () => rect.left });
+  defineMember('offsetWidth', { get: () => rect.width });
+  defineMember('offsetHeight', { get: () => rect.height });
+  defineMember('getBoundingClientRect', { value: () => ({ ...rect }), writable: true });
+  defineMember('setAttribute', { value: (name: string, value: unknown) => {
     options.onSetAttribute?.(name, value, instance);
   }, writable: true });
-  define(instance, 'removeAttribute', { value: () => undefined, writable: true });
-  define(instance, 'ownerDocument', { value: options.document ?? null, writable: true });
-  define(instance, 'getRootNode', { value: () => options.document ?? instance, writable: true });
-  define(instance, 'setPointerCapture', { value: () => undefined, writable: true });
-  define(instance, 'releasePointerCapture', { value: () => undefined, writable: true });
-  define(instance, 'hasPointerCapture', { value: () => false, writable: true });
-  define(instance, 'requestPointerLock', { value: () => undefined, writable: true });
-  define(instance, 'exitPointerLock', { value: () => undefined, writable: true });
-  define(instance, 'focus', { value: () => undefined, writable: true });
-  define(instance, 'blur', { value: () => undefined, writable: true });
-  define(instance, 'scrollTop', { get: () => 0, set: () => undefined });
-  define(instance, 'scrollLeft', { get: () => 0, set: () => undefined });
+  defineMember('removeAttribute', { value: () => undefined, writable: true });
+  defineMember('ownerDocument', { value: options.document ?? null, writable: true });
+  defineMember('getRootNode', { value: () => options.document ?? instance, writable: true });
+  defineMember('setPointerCapture', { value: () => undefined, writable: true });
+  defineMember('releasePointerCapture', { value: () => undefined, writable: true });
+  defineMember('hasPointerCapture', { value: () => false, writable: true });
+  defineMember('requestPointerLock', { value: () => undefined, writable: true });
+  defineMember('exitPointerLock', { value: () => undefined, writable: true });
+  defineMember('focus', { value: () => undefined, writable: true });
+  defineMember('blur', { value: () => undefined, writable: true });
+  defineMember('scrollTop', { get: () => 0, set: () => undefined });
+  defineMember('scrollLeft', { get: () => 0, set: () => undefined });
 
-  patchEventTarget(instance);
+  if (!native) patchEventTarget(instance);
 
   if (options.extra) {
     for (const [key, descriptor] of Object.entries(options.extra)) {

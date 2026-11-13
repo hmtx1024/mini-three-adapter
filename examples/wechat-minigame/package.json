@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "mini-three-adapter": "workspace:*",
+    "mini-three-adapter": "file:../..",
     "three": "^0.187.0"
   },
   "devDependencies": {

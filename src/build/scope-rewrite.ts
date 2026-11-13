@@ -51,9 +51,23 @@ export interface RewriteOptions {
   scopeModule?: string;
 }
 
+/**
+ * Minimal source-map shape accepted by Rollup / Vite as a transform result.
+ * Declared locally so `dist/*.d.ts` stays self-contained (`rollup` is an
+ * optional peer). `magic-string`'s `SourceMap` satisfies it structurally.
+ */
+export interface BuildSourceMap {
+  version: number;
+  file?: string;
+  sources: string[];
+  sourcesContent?: Array<string | null>;
+  names: string[];
+  mappings: string;
+}
+
 export interface RewriteResult {
   code: string;
-  map: { toString(): string } | null;
+  map: BuildSourceMap | null;
   /** Number of rewritten references. */
   count: number;
   /** Globals actually seen (useful for the build report). */
@@ -230,7 +244,7 @@ export function rewriteGlobals(
   ));
   return {
     code: ms.toString(),
-    map: ms.generateMap({ source: id, includeContent: true, hires: true }) as unknown as { toString(): string },
+    map: ms.generateMap({ source: id, includeContent: true, hires: true }),
     count,
     seen: Array.from(seen).sort(),
   };
