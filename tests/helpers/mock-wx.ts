@@ -47,16 +47,20 @@ function fakeCanvas(width = 300, height = 150): WxCanvas {
 /**
  * Real `wx.createImage()` exposes `onload`/`onerror` as accessors that store the
  * callback — that is exactly why redefining them as data properties used to cut
- * the native load event off. The mock mirrors that shape so the bridge is
+ * the native load event off. The simulator's `src` is an accessor too (the
+ * real-device shape is a data property and has its own hosts in
+ * tests/image-events.test.ts). The mock mirrors that shape so the bridge is
  * actually exercised.
  */
 function fakeImage(): MockImage {
   let load: ((event?: unknown) => void) | null = null;
   let error: ((event?: unknown) => void) | null = null;
+  let src = '';
   const img = {
     width: 0,
     height: 0,
-    src: '',
+    get src() { return src; },
+    set src(next: string) { src = next; },
     get onload() { return load; },
     set onload(next: ((event?: unknown) => void) | null) { load = next ?? null; },
     get onerror() { return error; },

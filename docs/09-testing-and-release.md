@@ -5,7 +5,7 @@
 ```bash
 npm install              # 安装依赖
 npm run typecheck        # tsc --noEmit（strict）
-npm test                 # vitest run（100 例）
+npm test                 # vitest run（105 例）
 npm test -- --watch      # 观察模式
 npm run build            # tsup：dist/*.js + *.d.ts + sourcemap
 npm run check            # typecheck + test + build
@@ -26,7 +26,7 @@ TMP="$PWD/.tmp/vitest" TEMP="$PWD/.tmp/vitest" npm test
 | `tests/polyfills.test.ts` | EventTarget/once/remove、PointerEvent、Blob/URL/base64、URL 解析、TextEncoder、fetch、AbortController |
 | `tests/runtime.test.ts` | 画布补丁、scope 隔离、上下文缓存、触摸桥、多指、installGlobals 可逆、resize/dispose、能力报告 |
 | `tests/plugin.test.ts` | 资产扫描、未解析资源、模块过滤、WebGPU 告警、manifest 输出 |
-| `tests/image-events.test.ts` | 图片事件宿主矩阵：可写描述符 / 仅原生 `addEventListener` / 仅 `wx.getImageInfo` / 三者皆无的 2s watchdog；`complete` 与 `decode()` 的成功/失败语义；`src` 为数据属性时的写入；终态只派发一次；告警去重与宿主形状 payload |
+| `tests/image-events.test.ts` | 图片事件宿主矩阵：可写描述符 / 仅原生 `addEventListener` / 仅 `wx.getImageInfo` / 三者皆无的 2s watchdog；真机形态（`onload` 读属性、`src` 为数据属性 + 写入副作用 + `defineProperty` 计数、空壳 `addEventListener`）；`complete` 与 `decode()` 的成功/失败语义；终态只派发一次；告警去重与宿主形状 payload（含 `src` 槽位） |
 | `tests/event-dispatch.test.ts` | 监听器 `this`、`event.target` / `currentTarget` 指向宿主元素（含 three `ImageLoader` 取图场景）、`event.target` 不暴露内部监听表 |
 | `tests/capabilities.test.ts` | 离屏优先 / 无离屏 API 时不兜底 / 主画布回退 / 无法探测返回 `undefined`、`webgl2Source` 三态、回退拿到任一候选上屏画布时按身份放弃（含宿主显式传 `canvas` 的组合） |
 | `tests/scope.test.ts` | 未初始化占位作用域：环境全局读作 `undefined`、`typeof window.document` 不抛、真实 API 仍抛可读错误、早读被 `createRuntime()` 点名一次 |
@@ -91,13 +91,13 @@ jobs:
 ### 9.5.1 发布前检查
 
 ```bash
-npm run check          # typecheck + 100 例测试 + tsup 构建
+npm run check          # typecheck + 105 例测试 + tsup 构建
 npm run release:check  # npm pack --dry-run --json，看将要发布的文件清单
 ```
 
 `package.json` 已配置 `prepublishOnly: "npm run clean && npm run check"`，`npm publish` 会自动清空 `dist/` 并跑一次完整构建与测试，既不会把未构建的产物发出去，也不会带入历史 hash chunk。发布前确认：
 
-- `files` 白名单只包含 `dist/`、`README.md`、`AGENTS.md`、`llms.txt`、`docs/`（0.1.8 实测 78 个文件、解包 746 KB、tarball 212 KB）。体积主要是 `docs/` 的 Markdown 与 `dist/` 的 `.d.ts`，两者都压缩率极高，tarball 增量很小。
+- `files` 白名单只包含 `dist/`、`README.md`、`AGENTS.md`、`llms.txt`、`docs/`（0.1.9 实测 79 个文件、解包 760 KB、tarball 217 KB）。体积主要是 `docs/` 的 Markdown 与 `dist/` 的 `.d.ts`，两者都压缩率极高，tarball 增量很小。
 - 测体积前必须先 `npm run clean`（`release:check` 已包含），否则 `dist/` 里上一轮构建残留的 hash chunk 会被一起算进去，实测值会虚高。
 - `exports` 里每个子路径的 `.js` 与 `.d.ts` 都存在。
 - `CHANGELOG.md` 已补上本次版本条目。

@@ -2,6 +2,28 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.1.9] - 2026-11-21
+
+0.1.8 只修了第一层（`onload` 访问器遮蔽，ADR-0011）。真机探针（消消乐小游戏 2026-11-21 报告更新）确认还有独立的第二层：真机 `wx.createImage()` 的 `src` 读取为**可写数据属性**，写入经宿主 interceptor 触发原生加载，而适配层的 `src` 访问器（连同 0.1.5 的「还原描述符写一次」舞蹈）会把拦截器换成死的普通属性——图片**根本没有开始加载**（`width/height` 恒 0、`complete` 恒 false）；同时真机的 `addEventListener` 是**空壳**（注册后从不派发图片事件），旧代码 else-if 互斥导致 `onload` 槽位从未接线。两条通道一条被替换、一条没接上。
+
+### Fixed
+
+- **`src` 为原生数据属性时不再安装访问器（P0，真机所有 `TextureLoader` 纹理不出图）**。按捕获的描述符分流：accessor（模拟器 / H5）宿主照旧安装，`mini-three-blob:` → `data:` 改写与兜底触发点不变；**数据属性宿主完全直通**——普通写入直达宿主 interceptor、原生加载钩子完好。0.1.5 的「还原描述符→写一次→装回」舞蹈删除：interceptor 宿主上它写的是死属性，一直只被普通对象的单测掩护。新增 [ADR-0012](./docs/adr/0012-host-data-property-boundary.md)。
+- **事件绑定由 else-if 改为并行**。真机 `addEventListener` 可能是空壳；现在无论 Tier-1 是否挂上，`onload`/`onerror` 槽位一律接线，`finish` 幂等保证双通道只收敛一次。watchdog 超时的 `path` 改报组合值（`addEventListener+onload`），超时能指认全部已挂通道。
+- **数据属性宿主的兜底由有界轮询驱动**。100ms × 120 次封顶（12s）侦测首次 `src` 写入后触发 `startFallback`（看门狗 / `wx.getImageInfo`）；终态或封顶自动停表，未赋值的图片不保留定时器。检测到 `mini-three-blob:` 对象 URL 时 `warnOnce('image-src-object-url', …, { src })` 给出指向性告警——数据属性宿主读不了对象 URL，落盘 `wx.env.USER_DATA_PATH` 的文件桥列为后续待办。
+- `hostShape` 补 `src: describeSlot(findDescriptor(raw, 'src'))`——本次定位正是靠 `branch=data` 与 `branch=set` 的分野。
+
+### Tests
+
+- `tests/image-events.test.ts` 21 → 26 例：新增 Proxy 复刻真机语义的宿主（数据描述符 + 写入副作用 + `defineProperty` 计数 + 空壳 `addEventListener` + 读属性槽位）——端到端出图、`src` 永不被 defineProperty、轮询 + 组合 path 超时、双通道单次收敛、getImageInfo 兜底经轮询、对象 URL 告警各一条。
+- `mock-wx` 的 `fakeImage.src` 改为访问器（模拟器形态），主套件继续钉住访问器分支。
+- 用例从 100 增至 105。
+
+### Docs
+
+- `docs/06` §6.3.1 增「数据属性 src 直通」一行与真机探针结论，报错对照表新增「真机 width/height 恒 0」一行；`docs/03` / `docs/04` / `docs/09` / `docs/11` 同步。
+- 新增 [ADR-0012](./docs/adr/0012-host-data-property-boundary.md)。
+
 ## [0.1.8] - 2026-11-21
 
 ### Fixed

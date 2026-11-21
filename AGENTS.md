@@ -21,7 +21,7 @@
 
 ```bash
 npm run typecheck   # tsc --noEmit, strict + noUncheckedIndexedAccess
-npm test            # vitest run（单 fork，100 例）
+npm test            # vitest run（单 fork，105 例）
 npm run build       # tsup → dist/*.js + *.d.ts
 npm run check       # 以上全部
 ```

@@ -182,6 +182,62 @@ function hostThatStoresAndReads(): {
   };
 }
 
+/**
+ * The full real-device shape (2026-11-21 probe): `src` reads as a plain
+ * writable DATA property, yet writes go through the host's property
+ * interceptor and start the native load — while Object.defineProperty would
+ * replace that interceptor with a dead plain property, so the image never
+ * loads. `addEventListener` exists but never dispatches image events; the
+ * callback slots are read at trigger time. Only a Proxy can model "data
+ * descriptor with write side effects" in pure JS.
+ */
+function hostWithNativeDataSrc(): {
+  raw: Record<string, unknown>;
+  emit(type: 'load' | 'error', payload?: unknown): void;
+  srcWrites(): string[];
+  srcDefineCount(): number;
+} {
+  const state = { src: '' };
+  const writes: string[] = [];
+  let defineCount = 0;
+  const target: Record<string, unknown> = { width: 0, height: 0 };
+  // The shell: registers, then never dispatches (the 0.1.8 field report).
+  target.addEventListener = () => undefined;
+  const raw = new Proxy(target, {
+    get(t, key, receiver) {
+      if (key === 'src') return state.src;
+      return Reflect.get(t, key, receiver);
+    },
+    set(t, key, value, receiver) {
+      if (key === 'src') {
+        writes.push(String(value));
+        state.src = String(value);
+        return true;
+      }
+      return Reflect.set(t, key, value, receiver);
+    },
+    getOwnPropertyDescriptor(t, key) {
+      if (key === 'src') {
+        return { value: state.src, writable: true, enumerable: true, configurable: true };
+      }
+      return Reflect.getOwnPropertyDescriptor(t, key);
+    },
+    defineProperty(t, key, descriptor) {
+      if (key === 'src') defineCount += 1;
+      return Reflect.defineProperty(t, key, descriptor);
+    },
+  });
+  return {
+    raw: raw as unknown as Record<string, unknown>,
+    emit(type, payload) {
+      const handler = (raw as unknown as Record<string, unknown>)[`on${type}`];
+      if (typeof handler === 'function') (handler as (event?: unknown) => void)(payload ?? { type });
+    },
+    srcWrites: () => writes.slice(),
+    srcDefineCount: () => defineCount,
+  };
+}
+
 afterEach(() => {
   vi.useRealTimers();
 });
@@ -389,7 +445,7 @@ describe('image native event bridge', () => {
     expect(onload).toHaveBeenCalledTimes(1);
   });
 
-  it('writes src through a plain data property instead of swallowing it', () => {
+  it('leaves a host data-property src untouched so plain writes land natively', () => {
     const raw = hostWithoutEventPath(true);
     const wx = { createImage: () => raw } as unknown as WxLike;
     const image = createImageFactory(wx).createImage();
@@ -397,7 +453,7 @@ describe('image native event bridge', () => {
     image.src = 'textures/a.png';
     expect(raw.src).toBe('textures/a.png');
 
-    // The wrapper must survive the one-off restore so later writes still work.
+    // Every write goes straight to the host property; reads come back native.
     image.src = 'textures/b.png';
     expect(raw.src).toBe('textures/b.png');
     expect(image.src).toBe('textures/b.png');
@@ -420,6 +476,7 @@ describe('image native event bridge', () => {
     expect(related[0]!.message).toContain('fallback');
     expect(related[0]!.payload).toMatchObject({
       onload: 'data-readonly',
+      src: 'accessor',
       addEventListener: 'missing',
       getImageInfo: 'missing',
     });
@@ -506,5 +563,110 @@ describe('image native event bridge', () => {
     const related = messages.filter((entry) => entry.message.includes('image-events-timeout'));
     expect(related).toHaveLength(1);
     expect(related[0]!.payload).toMatchObject({ path: 'onload', src: 'textures/normal.png' });
+  });
+
+  it('loads on a host with a silent addEventListener shell and a native data-property src', () => {
+    const host = hostWithNativeDataSrc();
+    const wx = { createImage: () => host.raw } as unknown as WxLike;
+    const image = createImageFactory(wx).createImage();
+    const listener = vi.fn();
+    image.addEventListener('load', listener);
+
+    image.src = 'textures/normal.png';
+
+    // The write reached the host's interceptor, and the adapter never
+    // replaced the property — that replacement is what stopped the native
+    // load on the real device (width/height stayed 0).
+    expect(host.srcWrites()).toEqual(['textures/normal.png']);
+    expect(host.srcDefineCount()).toBe(0);
+
+    // The shell addEventListener never dispatches; the wired slots deliver.
+    host.emit('load');
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({ type: 'load' }));
+    expect(image.complete).toBe(true);
+  });
+
+  it('arms the fallback via the src poll and names both wired channels on timeout', () => {
+    vi.useFakeTimers();
+    const host = hostWithNativeDataSrc();
+    const wx = { createImage: () => host.raw } as unknown as WxLike;
+    const image = createImageFactory(wx).createImage();
+    const listener = vi.fn();
+    image.addEventListener('error', listener);
+
+    image.src = 'textures/normal.png';
+    expect(listener).not.toHaveBeenCalled();
+
+    // 100 ms poll tick to detect the write, then the 2 s watchdog.
+    vi.advanceTimersByTime(2100);
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener.mock.calls[0]![0]).toMatchObject({
+      type: 'error',
+      detail: { reason: 'image-events-timeout', path: 'addEventListener+onload' },
+    });
+    expect(image.complete).toBe(true);
+  });
+
+  it('settles once when both the native listener channel and the slot channel fire', () => {
+    const host = hostWithNativeEventTarget();
+    const wx = { createImage: () => host.raw } as unknown as WxLike;
+    const image = createImageFactory(wx).createImage();
+    const listener = vi.fn();
+    image.addEventListener('load', listener);
+
+    image.src = 'textures/normal.png';
+    host.emit('load'); // channel 1: the host's native addEventListener
+    const slot = (host.raw as { onload?: unknown }).onload; // channel 2: the slot the adapter wired
+    if (typeof slot === 'function') (slot as (event?: unknown) => void)({ type: 'load' });
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(image.complete).toBe(true);
+  });
+
+  it('still reaches the getImageInfo fallback on a data-property host via the poll', () => {
+    vi.useFakeTimers();
+    const raw = hostWithoutEventPath(true);
+    const getImageInfo = vi.fn((options: { src: string; success?: (info: { width: number; height: number }) => void }) => {
+      options.success?.({ width: 64, height: 32 });
+    });
+    const wx = { createImage: () => raw, getImageInfo } as unknown as WxLike;
+    const image = createImageFactory(wx).createImage();
+    const onerror = vi.fn();
+    image.addEventListener('error', onerror);
+
+    image.src = 'textures/normal.png';
+    vi.advanceTimersByTime(100);
+
+    expect(getImageInfo).toHaveBeenCalledWith(expect.objectContaining({ src: 'textures/normal.png' }));
+    expect(onerror).toHaveBeenCalledTimes(1);
+    expect(image.complete).toBe(true);
+  });
+
+  it('warns once when an object URL is assigned on a native data-property host', () => {
+    vi.useFakeTimers();
+    const messages: Array<{ message: string; payload?: unknown }> = [];
+    const diagnostics = createDiagnostics('warn', (_level, message, payload) => {
+      messages.push({ message, payload });
+    });
+    const host = hostWithNativeDataSrc();
+    const wx = { createImage: () => host.raw } as unknown as WxLike;
+    const image = createImageFactory(wx, diagnostics).createImage();
+    const onerror = vi.fn();
+    image.addEventListener('error', onerror);
+
+    image.src = 'mini-three-blob:8f2a1c';
+    vi.advanceTimersByTime(100);
+
+    const related = messages.filter((entry) => entry.message.includes('mini-three-blob'));
+    expect(related).toHaveLength(1);
+    expect(related[0]!.payload).toMatchObject({ src: 'mini-three-blob:8f2a1c' });
+
+    // The native loader cannot read the object URL; its failure surfaces
+    // through the slots the adapter wired.
+    host.emit('error', new Error('load fail'));
+    expect(onerror).toHaveBeenCalledTimes(1);
   });
 });

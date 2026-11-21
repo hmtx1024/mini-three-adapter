@@ -15,6 +15,7 @@
 | [0009](./0009-placeholder-scope-environment-globals.md) | 占位作用域的环境全局读作 `undefined`，早读改为启动时点名 | Accepted |
 | [0010](./0010-native-event-target-boundary.md) | 原生事件目标不做 EventTarget 替换，`patchElement` 改为补缺不覆盖 | Accepted |
 | [0011](./0011-host-callback-slot-bridging.md) | 宿主回调槽位的访问器不得遮蔽桥接：getter 非派发期间恒回桥接函数 | Accepted |
+| [0012](./0012-host-data-property-boundary.md) | 宿主数据属性不得用 defineProperty 接管：src 按描述符分流 + 事件并行接线 + 有界轮询兜底 | Accepted |
 
 模板（新增 ADR 时复制）：
 

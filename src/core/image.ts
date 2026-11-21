@@ -91,6 +91,11 @@ function describeSlot(descriptor: PropertyDescriptor | undefined): string {
  */
 const EVENT_WATCHDOG_MS = 2000;
 
+/** How often a pass-through host's `src` is checked for the first write. */
+const SRC_POLL_INTERVAL_MS = 100;
+/** Give up after this many empty polls (image created but never used). */
+const SRC_POLL_MAX_TICKS = 120;
+
 export interface ImageFactory {
   /** `new Image()` returns a wx image object patched with DOM-ish behaviour. */
   Image: new (width?: number, height?: number) => HTMLImageElement;
@@ -135,6 +140,7 @@ export function createImageFactory(wx: WxLike, diagnostics?: Diagnostics): Image
     const nativeLoad = findDescriptor(raw, 'onload');
     const nativeError = findDescriptor(raw, 'onerror');
     const nativeComplete = findDescriptor(raw, 'complete');
+    const nativeSrc = findDescriptor(raw, 'src');
     const nativeAdd = callable(raw, 'addEventListener');
 
     // Snapshot of the host shape, taken before anything of ours can mask it, so
@@ -142,6 +148,7 @@ export function createImageFactory(wx: WxLike, diagnostics?: Diagnostics): Image
     const hostShape = {
       onload: describeSlot(nativeLoad),
       onerror: describeSlot(nativeError),
+      src: describeSlot(nativeSrc),
       addEventListener: nativeAdd ? 'native' : 'missing',
       complete: nativeComplete ? 'native' : 'missing',
       getImageInfo: typeof wx.getImageInfo === 'function' ? 'available' : 'missing',
@@ -159,30 +166,36 @@ export function createImageFactory(wx: WxLike, diagnostics?: Diagnostics): Image
       },
     });
 
-    // Wrap `src` so mini-three-blob: object URLs become data: URIs.
-    const srcDescriptor = findDescriptor(raw, 'src');
+    // `src` interception splits on the captured descriptor.
+    //
+    // Accessor (or missing): installing our own accessor is the point of the
+    // shim — `mini-three-blob:` object URLs become data: URIs on write and the
+    // fallback chain arms on every write.
+    //
+    // Native DATA property: the real-device shape (2026-11-21 probe). The write
+    // hook lives in the host's property interceptor, and Object.defineProperty
+    // replaces it with a plain JS property — even "restoring" the captured
+    // descriptor afterwards only writes to the dead plain property (that was
+    // 0.1.5's mistake, kept alive by plain-object unit mocks). The image then
+    // never loads: width/height stay 0 and `complete` stays false. Such hosts
+    // get full pass-through: plain writes reach the interceptor and start the
+    // native load, and a bounded poll below arms the fallback chain.
+    const srcDescriptor = nativeSrc;
+    const srcIsNativeData = Boolean(srcDescriptor && !srcDescriptor.set && srcDescriptor.writable === true);
     let currentSrc = '';
     /** Wired once the bridge exists: a host without an event path only learns
      *  that it needs the fallback when a `src` finally arrives. */
     let onSrcChange: ((src: string) => void) | undefined;
 
     /**
-     * Hand the value to the host. A descriptor with a setter is the normal case;
-     * a plain writable data property has to be restored for exactly one write,
-     * otherwise our own accessor swallows it and the host never starts loading.
+     * Hand the value to the host. Only reached on the accessor branch: a
+     * setter descriptor is forwarded through; anything else either cannot be
+     * written at all (read-only) or must not be written through us (data —
+     * see the pass-through note above).
      */
     const writeNativeSrc = (next: string): void => {
       if (srcDescriptor?.set) {
         srcDescriptor.set.call(raw, next);
-        return;
-      }
-      if (srcDescriptor && srcDescriptor.writable === true) {
-        try {
-          Object.defineProperty(raw, 'src', srcDescriptor);
-          raw.src = next;
-        } finally {
-          installSrcAccessor();
-        }
         return;
       }
       diagnostics?.warnOnce(
@@ -209,7 +222,7 @@ export function createImageFactory(wx: WxLike, diagnostics?: Diagnostics): Image
         /* non-configurable host property: keep the native one */
       }
     };
-    installSrcAccessor();
+    if (!srcIsNativeData) installSrcAccessor();
 
     /**
      * Event flow (the direction matters):
@@ -232,6 +245,7 @@ export function createImageFactory(wx: WxLike, diagnostics?: Diagnostics): Image
     let terminalDetail: unknown;
     const decodeWaiters: Array<{ resolve: () => void; reject: (error: unknown) => void }> = [];
     let watchdogId: ReturnType<typeof setTimeout> | undefined;
+    let srcPollId: ReturnType<typeof setTimeout> | undefined;
 
     /**
      * Depth of the shim dispatch currently in flight. While one runs,
@@ -264,6 +278,10 @@ export function createImageFactory(wx: WxLike, diagnostics?: Diagnostics): Image
         clearTimeout(watchdogId);
         watchdogId = undefined;
       }
+      if (srcPollId !== undefined) {
+        clearTimeout(srcPollId);
+        srcPollId = undefined;
+      }
       for (const waiter of decodeWaiters.splice(0)) {
         if (eventName === 'load') waiter.resolve();
         else waiter.reject(detail);
@@ -274,8 +292,14 @@ export function createImageFactory(wx: WxLike, diagnostics?: Diagnostics): Image
     const forwardLoad = (nativeEvent?: unknown): void => { finish('load', nativeEvent); };
     const forwardError = (nativeEvent?: unknown): void => { finish('error', nativeEvent); };
 
-    /** Which native path actually carries events on this host. */
-    let eventPath: 'addEventListener' | 'onload' | 'getImageInfo' | 'watchdog' | undefined;
+    /** Which native paths actually carry events on this host. */
+    let eventPath:
+      | 'addEventListener'
+      | 'onload'
+      | 'addEventListener+onload'
+      | 'getImageInfo'
+      | 'watchdog'
+      | undefined;
 
     // Tier 1: the host's own `addEventListener`. Captured before `patchElement`,
     // otherwise this call would land in our shim and no native event would ever
@@ -286,22 +310,27 @@ export function createImageFactory(wx: WxLike, diagnostics?: Diagnostics): Image
         nativeAdd('error', forwardError);
         eventPath = 'addEventListener';
       } catch {
-        /* fall through to the next shape */
+        /* fall through to the slots */
       }
     }
 
-    // Tier 2: plain assignment into the native callback slot. Must happen BEFORE
-    // the user-facing accessors below: after those exist the assignment only
-    // writes `handlers` and the host never hears about it.
-    if (!eventPath) {
-      try {
-        raw.onload = forwardLoad;
-        raw.onerror = forwardError;
-        // A non-writable slot swallows the assignment silently in sloppy mode.
-        if (typeof raw.onload === 'function') eventPath = 'onload';
-      } catch {
-        /* frozen slot */
+    // Tier 2: plain assignment into the native callback slot — wired REGARDLESS
+    // of tier 1, not else-if. The 2026-11-21 probe caught a host whose
+    // `addEventListener` is an empty shell: it accepts the registration, then
+    // never dispatches image events; the slots were the only live channel and
+    // the else-if meant they were never wired. `finish()` is terminal-once, so
+    // a host that delivers through both channels still settles exactly once.
+    // Must happen BEFORE the user-facing accessors below: after those exist the
+    // assignment only writes `handlers` and the host never hears about it.
+    try {
+      raw.onload = forwardLoad;
+      raw.onerror = forwardError;
+      // A non-writable slot swallows the assignment silently in sloppy mode.
+      if (typeof raw.onload === 'function') {
+        eventPath = eventPath === 'addEventListener' ? 'addEventListener+onload' : 'onload';
       }
+    } catch {
+      /* frozen slot */
     }
 
     if (!eventPath) {
@@ -463,6 +492,46 @@ export function createImageFactory(wx: WxLike, diagnostics?: Diagnostics): Image
       eventPath = 'watchdog';
     };
     onSrcChange = startFallback;
+
+    /**
+     * Pass-through hosts (native data-property `src`) have no write hook of
+     * ours, so the fallback chain arms from a bounded poll instead of the
+     * accessor's setter. One outstanding timer per image; stops on the first
+     * detected write (the fallbacks take over from there), on a terminal event
+     * (`finish` clears it), or after the cap — an image that is created but
+     * never given a `src` is not an error and must not keep timers alive.
+     */
+    const startSrcPoll = (): void => {
+      let ticks = 0;
+      const tick = (): void => {
+        srcPollId = undefined;
+        if (settled || failed) return;
+        let value = '';
+        try {
+          const current = (raw as { src?: unknown }).src;
+          value = typeof current === 'string' ? current : '';
+        } catch {
+          value = '';
+        }
+        if (value) {
+          currentSrc = value;
+          if (value.startsWith('mini-three-blob:')) {
+            diagnostics?.warnOnce(
+              'image-src-object-url',
+              'a mini-three-blob: object URL was assigned on a host whose src is a native data property; ' +
+                'the native loader cannot read object URLs, so the image will fail — write the blob to a file ' +
+                '(wx.env.USER_DATA_PATH) or decode it to a data: URI before assigning',
+              { src: value },
+            );
+          }
+          startFallback(value);
+          return;
+        }
+        if (++ticks < SRC_POLL_MAX_TICKS) srcPollId = setTimeout(tick, SRC_POLL_INTERVAL_MS);
+      };
+      srcPollId = setTimeout(tick, SRC_POLL_INTERVAL_MS);
+    };
+    if (srcIsNativeData) startSrcPoll();
 
     Object.defineProperty(raw, 'crossOrigin', { value: '', writable: true, configurable: true });
     // three's ImageLoader writes `fetchPriority` right after creating the
