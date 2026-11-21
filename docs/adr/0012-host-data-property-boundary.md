@@ -43,4 +43,4 @@
 ## 验证方式
 
 - `tests/image-events.test.ts`：Proxy 宿主（数据描述符 + 写入副作用 + `defineProperty` 计数 + 空壳 `addEventListener` + 读属性槽位）端到端出图、`src` 永不被 defineProperty、轮询 + 组合 path 超时、双通道单次收敛、getImageInfo 经轮询、对象 URL 告警。
-- 真机复测：业务侧升级 0.1.9，跑 `e59bf80` 构建对照，console 应无 `image-events-timeout` / `image-src-object-url`。
+- 真机复测：✅ 2026-11-22 业务侧升级 0.1.9 实测通过（`e59bf80` 构建对照，启动页位图经标准 `TextureLoader` 出图，console 无 `image-events-timeout` / `image-src-object-url`）。

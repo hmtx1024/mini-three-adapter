@@ -67,7 +67,7 @@
 | `performance.now` | `wx.getPerformance` → `Date.now` 回退 | ✅ |
 | `getComputedStyle` / `matchMedia` / `screen` / `navigator` | 轻量模拟 | ⚠️ 仅够 three 使用，非完整实现 |
 | `createImageBitmap` | **故意为 `undefined`** | ✅ 让 three 走降级分支 |
-| 图片原生事件（`img.onload` / `addEventListener('load')` / `decode()`） | 四级桥接：原生 `addEventListener` 与 `onload`/`onerror` 槽位**并行**接线 → `wx.getImageInfo` 诊断 → 2s watchdog；`onload` getter 非派发期间恒回桥接（ADR-0011）；`src` 为数据属性的真机宿主完全直通 + 有界轮询兜底（ADR-0012） | 🟡 单测 26 例覆盖「赋值即存 / 触发时读属性 / src 为 accessor 或数据属性 / 空壳 addEventListener」全部宿主形态；真机复测见 `docs/06` §6.3.1 |
+| 图片原生事件（`img.onload` / `addEventListener('load')` / `decode()`） | 四级桥接：原生 `addEventListener` 与 `onload`/`onerror` 槽位**并行**接线 → `wx.getImageInfo` 诊断 → 2s watchdog；`onload` getter 非派发期间恒回桥接（ADR-0011）；`src` 为数据属性的真机宿主完全直通 + 有界轮询兜底（ADR-0012） | ✅ 单测 26 例覆盖「赋值即存 / 触发时读属性 / src 为 accessor 或数据属性 / 空壳 addEventListener」全部宿主形态；**真机复测通过**（0.1.9，业务侧 2026-11-22，`e59bf80` 构建对照出图） |
 | 纹理格式 | PNG / JPEG | ✅ WebP 在部分真机解码失败，见 §11.6 |
 | `FileReader` / `WebSocket` / `AudioContext` | 缺省或透传 | ⚠️ 业务需要时按 `docs/08` 扩展 |
 | `Worker` / `WebAssembly` | 透传宿主全局（`WXWebAssembly`） | 🟡 |
@@ -84,7 +84,7 @@
 | `loader_*` | GLTF / DRACO / KTX2 / OBJ / FBX | ⬜ 未回归 | 需配置 decoder 路径与分包 |
 | `postprocessing_*` | EffectComposer / bloom / SSAO | ⬜ 未回归 | 注意深度缓冲与 render target 尺寸 |
 | `animation_*` / `physics_*` | 骨骼动画 / wasm 物理 | ⬜ 未回归 | 涉及 wasm 资源预下载 |
-| 基础渲染 | `examples/wechat-minigame`、`wechat-miniprogram`、`h5` | ✅ 单元级 | 95 个 Vitest 用例覆盖画布、事件、作用域、插件 |
+| 基础渲染 | `examples/wechat-minigame`、`wechat-miniprogram`、`h5` | ✅ 单元级 | 105 个 Vitest 用例覆盖画布、事件、作用域、插件 |
 
 每回归一条，在本表追加：`场景 id | three 版本 | 基础库 | 设备 | 结果 | 失败原因 | 新增 polyfill`。
 
