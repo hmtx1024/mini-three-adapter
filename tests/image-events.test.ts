@@ -121,6 +121,67 @@ function hostWithSilentCallbackSlots(complete = false): Record<string, unknown> 
   };
 }
 
+/**
+ * The real-device shape (2026-11-21 field report): the host does NOT keep the
+ * assignment in an internal slot. When the image finishes it READS
+ * `image.onload` and calls whatever the property returns. The object starts
+ * without any `onload` member; tier-2 of the bridge turns the assignment into
+ * an own data property, which the shim accessor then replaces — so what the
+ * host reads back at trigger time is exactly what our getter answers.
+ */
+function hostWithReadTimeCallbacks(): {
+  raw: Record<string, unknown>;
+  emit(type: 'load' | 'error', payload?: unknown): void;
+} {
+  let src = '';
+  const raw: Record<string, unknown> = {
+    width: 0,
+    height: 0,
+    get src() { return src; },
+    set src(next: string) { src = next; },
+  };
+  return {
+    raw,
+    emit(type, payload) {
+      const handler = raw[`on${type}`];
+      if (typeof handler === 'function') (handler as (event?: unknown) => void)(payload ?? { type });
+    },
+  };
+}
+
+/**
+ * A host that does BOTH: the assignment lands in a native slot AND the trigger
+ * reads the property back. The bridge must settle once and deliver the user
+ * handler once — not once per path.
+ */
+function hostThatStoresAndReads(): {
+  raw: Record<string, unknown>;
+  emit(type: 'load' | 'error', payload?: unknown): void;
+} {
+  let load: ((event?: unknown) => void) | null = null;
+  let error: ((event?: unknown) => void) | null = null;
+  let src = '';
+  const raw: Record<string, unknown> = {
+    width: 0,
+    height: 0,
+    get src() { return src; },
+    set src(next: string) { src = next; },
+    get onload() { return load; },
+    set onload(next: unknown) { load = typeof next === 'function' ? next as (event?: unknown) => void : null; },
+    get onerror() { return error; },
+    set onerror(next: unknown) { error = typeof next === 'function' ? next as (event?: unknown) => void : null; },
+  };
+  return {
+    raw,
+    emit(type, payload) {
+      const stored = type === 'load' ? load : error;
+      stored?.(payload ?? { type });
+      const read = raw[`on${type}`];
+      if (typeof read === 'function') (read as (event?: unknown) => void)(payload ?? { type });
+    },
+  };
+}
+
 afterEach(() => {
   vi.useRealTimers();
 });
@@ -362,5 +423,88 @@ describe('image native event bridge', () => {
       addEventListener: 'missing',
       getImageInfo: 'missing',
     });
+  });
+
+  it('answers a callable bridge when the host reads the onload slot at trigger time', () => {
+    const host = hostWithReadTimeCallbacks();
+    const wx = { createImage: () => host.raw } as unknown as WxLike;
+    const image = createImageFactory(wx).createImage();
+
+    // The invariant the 0.1.7 real-device regression broke: whatever the host
+    // reads out of the slot must be callable, with or without a user handler.
+    // three's ImageLoader never assigns `img.onload`, it only listens.
+    expect(typeof image.onload).toBe('function');
+    expect(typeof image.onerror).toBe('function');
+  });
+
+  it('bridges a host that reads image.onload at trigger time (real-device shape)', () => {
+    const host = hostWithReadTimeCallbacks();
+    const wx = { createImage: () => host.raw } as unknown as WxLike;
+    const image = createImageFactory(wx).createImage();
+    const listener = vi.fn();
+    image.addEventListener('load', listener);
+
+    image.src = 'textures/normal.png';
+    host.emit('load');
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({ type: 'load' }));
+    expect(image.complete).toBe(true);
+  });
+
+  it('delivers an app-assigned onload exactly once when the host reads the slot', () => {
+    const host = hostWithReadTimeCallbacks();
+    const wx = { createImage: () => host.raw } as unknown as WxLike;
+    const image = createImageFactory(wx).createImage();
+    const user = vi.fn();
+    const listener = vi.fn();
+    image.onload = user as unknown as typeof image.onload;
+    image.addEventListener('load', listener);
+
+    image.src = 'textures/normal.png';
+    host.emit('load');
+
+    expect(user).toHaveBeenCalledTimes(1);
+    expect(user.mock.calls[0]![0]).toMatchObject({ type: 'load' });
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(image.complete).toBe(true);
+  });
+
+  it('settles exactly once on a host that both stores the assignment and reads the slot', () => {
+    const host = hostThatStoresAndReads();
+    const wx = { createImage: () => host.raw } as unknown as WxLike;
+    const image = createImageFactory(wx).createImage();
+    const user = vi.fn();
+    const listener = vi.fn();
+    image.onload = user as unknown as typeof image.onload;
+    image.addEventListener('load', listener);
+
+    image.src = 'textures/normal.png';
+    host.emit('load');
+
+    expect(user).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(image.complete).toBe(true);
+  });
+
+  it('warns once with the event path and src when the watchdog times out', () => {
+    vi.useFakeTimers();
+    const messages: Array<{ message: string; payload?: unknown }> = [];
+    const diagnostics = createDiagnostics('warn', (_level, message, payload) => {
+      messages.push({ message, payload });
+    });
+    const raw = hostWithSilentCallbackSlots();
+    const wx = { createImage: () => raw } as unknown as WxLike;
+    const image = createImageFactory(wx, diagnostics).createImage();
+    const listener = vi.fn();
+    image.addEventListener('error', listener);
+
+    image.src = 'textures/normal.png';
+    vi.advanceTimersByTime(2000);
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    const related = messages.filter((entry) => entry.message.includes('image-events-timeout'));
+    expect(related).toHaveLength(1);
+    expect(related[0]!.payload).toMatchObject({ path: 'onload', src: 'textures/normal.png' });
   });
 });

@@ -233,8 +233,21 @@ export function createImageFactory(wx: WxLike, diagnostics?: Diagnostics): Image
     const decodeWaiters: Array<{ resolve: () => void; reject: (error: unknown) => void }> = [];
     let watchdogId: ReturnType<typeof setTimeout> | undefined;
 
+    /**
+     * Depth of the shim dispatch currently in flight. While one runs,
+     * `dispatchEvent`'s inline delivery reads `raw['on<type>']`; that read must
+     * answer the REGISTERED user handler, not the bridge again, or the inline
+     * path would recurse into `finish` instead of calling the app's function
+     * (see the accessors below).
+     */
+    let dispatchDepth = 0;
     const dispatch = (event: unknown): void => {
-      (raw as unknown as { dispatchEvent(e: unknown): void }).dispatchEvent(event);
+      dispatchDepth++;
+      try {
+        (raw as unknown as { dispatchEvent(e: unknown): void }).dispatchEvent(event);
+      } finally {
+        dispatchDepth--;
+      }
     };
 
     /**
@@ -300,15 +313,33 @@ export function createImageFactory(wx: WxLike, diagnostics?: Diagnostics): Image
       );
     }
 
-    // User-facing accessors only REGISTER a callback; delivery happens above.
-    // A host that freezes `onload` cannot be intercepted at all — the warning
-    // above already covers that case, so never throw out of createImage().
+    // User-facing accessors only REGISTER a callback; delivery happens through
+    // `dispatchEvent`'s inline path. A host that freezes `onload` cannot be
+    // intercepted at all — the warning above already covers that case, so
+    // never throw out of createImage().
+    //
+    // The getter answers TWO different readers, and it must keep the slot
+    // CALLABLE (the 0.1.7 real-device defect: it returned the registered
+    // handler, which is `undefined` for every `addEventListener` consumer, so
+    // hosts that read `image.onload` at trigger time called nothing and every
+    // texture died on the watchdog):
+    //  - the host itself, on devices that do not consult a stored callback but
+    //    READ the property when the image finishes and call whatever comes
+    //    back — answer the bridge; `finish()` is terminal-once, so a host that
+    //    both stores AND reads cannot double-fire;
+    //  - our own `dispatchEvent`, whose inline delivery must call the
+    //    registered handler instead of re-entering the bridge — answered via
+    //    `dispatchDepth > 0`.
+    const forwarders: Record<'load' | 'error', (nativeEvent?: unknown) => void> = {
+      load: forwardLoad,
+      error: forwardError,
+    };
     for (const eventName of ['load', 'error'] as const) {
       try {
         Object.defineProperty(raw, `on${eventName}`, {
           configurable: true,
           enumerable: true,
-          get: () => handlers[eventName],
+          get: () => (dispatchDepth > 0 ? handlers[eventName] : forwarders[eventName]),
           set: (next: ((event?: unknown) => void) | null) => {
             handlers[eventName] = typeof next === 'function' ? next : undefined;
           },
@@ -371,6 +402,17 @@ export function createImageFactory(wx: WxLike, diagnostics?: Diagnostics): Image
           finish('load', { type: 'load', reason: 'watchdog-complete' });
           return;
         }
+        // The failure detail reaches the loader's onError, but a bare console
+        // would stay silent (the 0.1.7 field report: "no error at all"). The
+        // leading token matches the error detail's `reason` so device logs can
+        // be grepped for the same identifier.
+        diagnostics?.warnOnce(
+          'image-events-timeout',
+          `image-events-timeout: no load or error event within ${EVENT_WATCHDOG_MS} ms; ` +
+            'the texture is reported as failed (package textures decode well inside 2s; ' +
+            'slow network images need preloading, docs/06 §6.3.1)',
+          { path: eventPath, src: currentSrc },
+        );
         forwardError({ type: 'error', reason: 'image-events-timeout', path: eventPath });
       }, EVENT_WATCHDOG_MS);
     };
@@ -423,6 +465,10 @@ export function createImageFactory(wx: WxLike, diagnostics?: Diagnostics): Image
     onSrcChange = startFallback;
 
     Object.defineProperty(raw, 'crossOrigin', { value: '', writable: true, configurable: true });
+    // three's ImageLoader writes `fetchPriority` right after creating the
+    // element; predefine it as a plain writable member so that write lands on a
+    // known property instead of growing an unknown one on a host object.
+    Object.defineProperty(raw, 'fetchPriority', { value: 'auto', writable: true, configurable: true });
     Object.defineProperty(raw, 'decode', {
       value: () => new Promise<void>((resolve, reject) => {
         // Failure first: `complete` is true for a failed image as well, so the

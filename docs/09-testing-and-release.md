@@ -5,7 +5,7 @@
 ```bash
 npm install              # 安装依赖
 npm run typecheck        # tsc --noEmit（strict）
-npm test                 # vitest run（95 例）
+npm test                 # vitest run（100 例）
 npm test -- --watch      # 观察模式
 npm run build            # tsup：dist/*.js + *.d.ts + sourcemap
 npm run check            # typecheck + test + build
@@ -91,13 +91,13 @@ jobs:
 ### 9.5.1 发布前检查
 
 ```bash
-npm run check          # typecheck + 95 例测试 + tsup 构建
+npm run check          # typecheck + 100 例测试 + tsup 构建
 npm run release:check  # npm pack --dry-run --json，看将要发布的文件清单
 ```
 
 `package.json` 已配置 `prepublishOnly: "npm run clean && npm run check"`，`npm publish` 会自动清空 `dist/` 并跑一次完整构建与测试，既不会把未构建的产物发出去，也不会带入历史 hash chunk。发布前确认：
 
-- `files` 白名单只包含 `dist/`、`README.md`、`AGENTS.md`、`llms.txt`、`docs/`（0.1.5 实测 76 个文件、解包 687 KB、tarball 196 KB）。体积主要是 `docs/` 的 Markdown 与 `dist/` 的 `.d.ts`，两者都压缩率极高，tarball 增量很小。
+- `files` 白名单只包含 `dist/`、`README.md`、`AGENTS.md`、`llms.txt`、`docs/`（0.1.8 实测 78 个文件、解包 746 KB、tarball 212 KB）。体积主要是 `docs/` 的 Markdown 与 `dist/` 的 `.d.ts`，两者都压缩率极高，tarball 增量很小。
 - 测体积前必须先 `npm run clean`（`release:check` 已包含），否则 `dist/` 里上一轮构建残留的 hash chunk 会被一起算进去，实测值会虚高。
 - `exports` 里每个子路径的 `.js` 与 `.d.ts` 都存在。
 - `CHANGELOG.md` 已补上本次版本条目。

@@ -67,7 +67,7 @@
 | `performance.now` | `wx.getPerformance` → `Date.now` 回退 | ✅ |
 | `getComputedStyle` / `matchMedia` / `screen` / `navigator` | 轻量模拟 | ⚠️ 仅够 three 使用，非完整实现 |
 | `createImageBitmap` | **故意为 `undefined`** | ✅ 让 three 走降级分支 |
-| 图片原生事件（`img.onload` / `addEventListener('load')` / `decode()`） | 三级桥接：原生 `addEventListener` → `onload` 赋值 → `wx.getImageInfo` 诊断 | 🟡 模拟器与单元测试通过；真机宿主形态差异大，见 `docs/06` §6.3 |
+| 图片原生事件（`img.onload` / `addEventListener('load')` / `decode()`） | 四级桥接：原生 `addEventListener` → `onload` 赋值 → `wx.getImageInfo` 诊断 → 2s watchdog；`onload` getter 非派发期间恒回桥接，覆盖「赋值即存」（模拟器）与「触发时读属性」（真机）两种时序（ADR-0011） | 🟡 单测 21 例覆盖全部宿主形态；真机宿主形态差异大，见 `docs/06` §6.3.1 |
 | 纹理格式 | PNG / JPEG | ✅ WebP 在部分真机解码失败，见 §11.6 |
 | `FileReader` / `WebSocket` / `AudioContext` | 缺省或透传 | ⚠️ 业务需要时按 `docs/08` 扩展 |
 | `Worker` / `WebAssembly` | 透传宿主全局（`WXWebAssembly`） | 🟡 |
@@ -97,4 +97,4 @@
 5. 对象 URL 是 `mini-three-blob:` + `data:`，不是浏览器 `blob:`；若有库硬编码 `blob:` 前缀判断，需要适配。
 6. Worker 分包、`.wasm.br`、iOS 高性能+ 需业务按 `mini-three-assets.json` 的 `gameJsonSuggestion` 自行配置，插件不直接改 `game.json`。
 7. 纹理请使用 PNG / JPEG。**WebP 在部分真机上无法解码**（`wx.createImage` 直接触发 `error`），这与适配层无关；`mini-three-adapter` 只会在 `wx.getImageInfo` 失败时给出指向格式的告警。
-8. 图片事件桥接依赖宿主投递事件。真正的 `load`/`error` 拿不到时（宿主三种入口全无，或接受了 `onload` 却永不调用），一律在 **2s** 内由 watchdog 给出终态：`complete` 为真则派发 `load`，否则派发 `error`。这意味着 >2s 才能解码完的网络大图会被判失败，包内纹理不受影响。
+8. 图片事件桥接依赖宿主投递事件。真正的 `load`/`error` 拿不到时（宿主三种入口全无，或接受了 `onload` 却永不调用），一律在 **2s** 内由 watchdog 给出终态：`complete` 为真则派发 `load`，否则派发 `error` 并 `warnOnce('image-events-timeout', …, { path, src })`。这意味着 >2s 才能解码完的网络大图会被判失败，包内纹理不受影响。宿主「触发时读属性」的形态（真机）由访问器桥接保证读到的是函数，不会被遮蔽成 `undefined`（ADR-0011）。

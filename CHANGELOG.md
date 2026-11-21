@@ -2,7 +2,25 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
-## [Unreleased]
+## [0.1.8] - 2026-11-21
+
+### Fixed
+
+- **真机宿主「事件触发时读 `image.onload`」，桥接被用户访问器遮蔽成 `undefined`（P0，真机所有 `TextureLoader` 纹理静默超时；模拟器正常，掩盖两个版本）**。0.1.5 的四级兜底把转发器写进了原生 `onload` 槽位，随后安装的用户访问器却把同一属性覆盖成登记表，getter 只回「消费者显式 `img.onload = fn`」的值。模拟器的 `wx.createImage()` 在**赋值那一刻**把回调存进宿主内部、事件时直接调用存值，所以看不见这个 bug；真机在**事件触发时读属性**并调用读到的值——three 的 `ImageLoader` 只用 `addEventListener`，从不赋 `onload`，宿主读到 `undefined` → 桥接永不执行 → 2s 看门狗判超时 → 启动页插图 / UI 位图全部不出图。现在 getter 在**非派发期间永远返回桥接函数**（`finish` 幂等，宿主「既存又读」也不会双发），只有 `dispatchEvent` 行内派发期间回登记的用户回调（否则行内派发会递归回桥接、用户回调双发）。新增 [ADR-0011](./docs/adr/0011-host-callback-slot-bridging.md) 把「访问器不得遮蔽宿主回调槽位」定为硬规则。
+  - 来自业务侧真机对照报告（消消乐小游戏 `docs/adapter-image-events.md`）：`bc52e3f`（无位图）真机正常 → `e59bf80`（首次引入 `boot-bg.jpg`）真机空白；应用层直连 `wx.createImage()` + `onload` 正常，证明宿主事件本身可用、坏在包装顺序。
+  - 报告方案 A 的「组合 getter」（bridge + user 一起调）会让 `dispatchEvent` 的行内派发再次读到组合函数、用户回调双发，故用 `dispatchDepth` 区分「宿主读」与「自家派发读」两种读者，各自恰好送达一次。
+- **看门狗超时在裸 console 上不可见**。超时除派发带 `reason` 的 `error` 外补一条 `warnOnce('image-events-timeout', …, { path, src })`，文案带 reason 标识便于真机日志 grep，不再是「无报错、只是没图」。
+- 预置 `fetchPriority`（three 的 `ImageLoader` 创建元素后会写入），避免给宿主对象新增未知成员的平台差异；`crossOrigin` 已同理预置。
+
+### Tests
+
+- `tests/image-events.test.ts` 16 → 21 例，新增「真机形态」宿主矩阵，报告的回归清单全部落地：事件触发时读属性仍能桥接 `addEventListener` 消费者、`onload` / `onerror` 槽位始终可调用、业务 `img.onload = fn` 恰好派发一次（不再被宿主直调绕过终态）、「既存又读」宿主只收敛一次、看门狗超时告警恰好一条（带 `path` / `src`）。
+- 用例从 95 增至 100。
+
+### Docs
+
+- `docs/06` §6.3.1 宿主形态表拆分「赋值即存」与「触发时读属性」两种时序，报错对照表新增真机空白一行，watchdog 段落补告警说明；`docs/03` / `docs/04` / `docs/11` 同步。
+- 新增 [ADR-0011](./docs/adr/0011-host-callback-slot-bridging.md)。
 
 ## [0.1.7] - 2026-11-13
 

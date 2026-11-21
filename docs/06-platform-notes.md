@@ -47,6 +47,7 @@ const { startScene } = await import('./scene.js'); // scene.js 里才 import thr
 | WebGPU 相关 API 报错 | 小游戏无 WebGPU | 插件 `webgpu` 策略；默认告警 |
 | three 版本升级后控件失效 | r170+ 用 `three/addons/`，`outputColorSpace` 取代 `outputEncoding` | 示例与 `rendererHints` 使用新 API；插件 include 覆盖两种路径 |
 | `img.onload` / `addEventListener('load')` 永不触发，纹理靠超时兜底 | 图片 shim 只建了「合成事件 → 用户回调」这条边，没有「原生 load → 合成事件」；部分宿主的 `onload`/`onerror` 读不到描述符，但支持直接赋值 | `createImageFactory` 在 patch 前抓原生入口，按「原生 `addEventListener` → `onload` 赋值 → `wx.getImageInfo` 诊断 → 2s watchdog」四级兜底；宿主形态写入 `image-native-events` 告警的 payload |
+| 真机纹理全部空白/超时，模拟器正常且**无报错** | 真机宿主在**事件触发时读 `image.onload`** 并调用读到的值；shim 访问器的 getter 只回用户回调登记表，把 Tier-2 写入的桥接函数遮蔽成 `undefined`（three 只用 `addEventListener`，从不赋 `onload`） | getter 非派发期间恒回桥接函数、`dispatchEvent` 行内派发期间回用户回调（[ADR-0011](./adr/0011-host-callback-slot-bridging.md)）；看门狗超时 `warnOnce('image-events-timeout')`，不再静默 |
 | 纹理是 `.webp` 但真机加载失败 | 该设备的图片解码器不支持 WebP | 纹理改用 PNG / JPEG；`wx.getImageInfo` 失败时告警会点名格式与路径 |
 | `canvas.onpointerdown = fn` 之类行内处理器不触发 | 事件方法被绑定到内部对象，`this['on'+type]` 查找落空 | `patchEventTarget` 把宿主对象作为行内处理器宿主传入 |
 | `texture.image` 是个没有 `src` 的空壳，贴图不显示 | 监听器里的 `this` 是内部 `MiniEventTarget`，three `ImageLoader` 把它当成 `<img>` 存进 `Texture.source.data` | `dispatchEvent` 把 `this`、`event.target`、`currentTarget` 全部转发到宿主元素；`event.target` 不再暴露内部监听表 |
@@ -71,7 +72,8 @@ renderer.setAnimationLoop(() => {
 | 宿主形态 | 抓取方式 | 结果 |
 | --- | --- | --- |
 | 原生 `addEventListener('load'/'error')` | patch 前 `bind` 保存，patch 后直接调用原生方法 | 最优；`onload` 描述符是否存在都不影响 |
-| `onload` / `onerror` 可赋值（访问器或无描述符但可写） | 在定义 shim 访问器**之前**直接 `img.onload = forward` | 正常出图 |
+| `onload` / `onerror` 可赋值，宿主**赋值时存回调**（模拟器形态） | 在定义 shim 访问器**之前**直接 `img.onload = forward` | 正常出图 |
+| `onload` / `onerror` 可赋值，宿主**事件触发时读属性**（真机形态，0.1.7 空白根因） | 同上 + shim 访问器 getter **非派发期间恒回桥接函数**，宿主读到的永远是函数 | 已修；`finish` 幂等，宿主「既存又读」也不会双发 |
 | 接受赋值但**永远不调用** | 无法从形状上识别 | 由 watchdog 兜底：2s 后按 `complete` 判定，见下 |
 | 只能读描述符、且不可赋值 | — | 走下一级 |
 | 只有 `wx.getImageInfo` | `src` 赋值时调用 `getImageInfo({ src })` | **不出图**：`getImageInfo` 只解码元数据、不填充图片像素，合成 `load` 会让 three 上传空纹理，因此改为派发带 `reason` 的 `error` |
@@ -81,7 +83,7 @@ renderer.setAnimationLoop(() => {
 而这种宿主在 2s 之前与正常加载完全无法区分。到点时：
 
 - 宿主 `complete` 为真 → 派发 `load`（浏览器语义下 `complete` 就意味着 `load` 已经发生过），`reason: 'watchdog-complete'`；
-- 否则派发 `error`，`reason: 'image-events-timeout'`，`detail.path` 指认是哪一级入口「看起来挂上了」。
+- 否则派发 `error`，`reason: 'image-events-timeout'`，`detail.path` 指认是哪一级入口「看起来挂上了」，同时 `warnOnce('image-events-timeout', …, { path, src })`——超时不再只存在于 error detail 里，裸 console 也看得见。
 
 真实 `load`/`error` 永远优先：终态只派发一次，闹钟在事件到达时被清掉。
 
@@ -91,7 +93,8 @@ renderer.setAnimationLoop(() => {
 要点：
 
 - 描述符不是唯一入口：有的宿主 `Object.getOwnPropertyDescriptor(img, 'onload')` 返回 `undefined`，但 `img.onload = fn` 仍然有效并能触发。
-- 「能赋值」也不等于「会触发」：这是 0.1.6 修的边界；不要用 `typeof img.onload === 'function'` 判断宿主是否健康。
+- 「能赋值」也分两种**消费时序**：模拟器在赋值那一刻把回调存进宿主内部、事件时直接调用存值；真机在事件触发时读 `image.onload` 属性并调用读到的值。shim 的 `onload` / `onerror` getter 因此在非派发期间**永远返回桥接函数**，只有 `dispatchEvent` 行内派发期间返回登记的用户回调——前者保证真机读到的不是 `undefined`（0.1.7 真机空白根因），后者防止行内派发递归回桥接、用户回调双发（[ADR-0011](./adr/0011-host-callback-slot-bridging.md)）。
+- 「能赋值」还不等于「会触发」：这是 0.1.6 修的边界；不要用 `typeof img.onload === 'function'` 判断宿主是否健康。
 - `patchElement` 在**没有原生事件系统**的宿主上会覆盖 `addEventListener`（小程序 / 小游戏），任何「用原生事件」的方案都必须在它之前保存引用，否则拿到的是 shim。浏览器 canvas 例外：`nativeEventTarget: true` 时事件方法与 DOM 成员一律不动（[ADR-0010](./adr/0010-native-event-target-boundary.md)）。
 - `src` 同样可能只是可写数据属性。这种情况下 shim 访问器会吞掉写入，`image.ts` 会临时还原宿主属性写一次再装回访问器。
 - `complete` 在 `load` 与 `error` 后都为 `true`，`decode()` 在 `error` 时 reject（与浏览器一致）。
