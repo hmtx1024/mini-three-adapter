@@ -110,8 +110,24 @@ export interface ImageFactory {
   createImageBitmap: undefined;
 }
 
-export function createImageFactory(wx: WxLike, diagnostics?: Diagnostics): ImageFactory {
+export interface ImageFactoryOptions {
+  /**
+   * Replace how the raw host image object is acquired. Default:
+   * `wx.createImage()` → `OffscreenCanvas.createImage()`. Whatever this returns
+   * is bridged in place (event slots, `src` handling, fallbacks), so it must be
+   * the host's own image object — no wrappers, clones or proxies (ADR-0004 /
+   * ADR-0012). Errors thrown here are not swallowed.
+   */
+  createImage?: () => WxImage;
+}
+
+export function createImageFactory(
+  wx: WxLike,
+  diagnostics?: Diagnostics,
+  options: ImageFactoryOptions = {},
+): ImageFactory {
   const createRaw = (): WxImage => {
+    if (options.createImage) return options.createImage();
     if (typeof wx.createImage === 'function') return wx.createImage();
     if (typeof wx.createOffscreenCanvas === 'function') {
       const off = wx.createOffscreenCanvas({ width: 1, height: 1, type: '2d' });
@@ -119,7 +135,7 @@ export function createImageFactory(wx: WxLike, diagnostics?: Diagnostics): Image
     }
     throw new Error(
       '[mini-three-adapter] Neither wx.createImage nor OffscreenCanvas.createImage is available. ' +
-        'Upgrade the WeChat base library or inject an `imageFactory` in options.',
+        'Upgrade the WeChat base library, pass a `createImage` option, or supply a custom PlatformBinding.',
     );
   };
 

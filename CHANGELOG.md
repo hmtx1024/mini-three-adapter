@@ -2,6 +2,22 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.1.11] - 2026-11-22
+
+### Added
+
+- **`createImage` 取图入口注入（P3，纯加法）**。`WeChatGameOptions` / `WeChatMiniProgramOptions` 新增可选 `createImage?: () => WxImage`，`createImageFactory` 新增可选第三参 `options`。它只替换**原始取图**（默认仍是 `wx.createImage()` → `OffscreenCanvas.createImage()`），事件桥接、`src` 分流、兜底与轮询照常就地补丁；返回对象必须是宿主自己的 image（禁止包装/克隆，ADR-0004 / ADR-0012），抛错不被吞。不传时默认路径逐字节不变，对本仓库与业务侧代码零影响。
+- `createImageFactory` 报错文案修正：此前的「inject an `imageFactory` in options」指向一个不存在的选项；现在指向 `createImage` 选项或自定义 `PlatformBinding`。
+
+### Tests
+
+- `tests/image-events.test.ts` 26 → 28 例：工厂级注入生效且不再触达 `wx.createImage`；`createWeChatGameBinding` 透传 `createImage`。
+- 用例从 105 增至 107。
+
+### Docs
+
+- `docs/04`（`WeChatGameOptions` / `WeChatMiniProgramOptions` / `createImageFactory` 签名）、`docs/03`、`docs/08`（自定义平台的取图逃生舱）同步。
+
 ## [0.1.10] - 2026-11-22
 
 0.1.9 把「`src` 为数据属性」的真机宿主改为完全直通后，对象 URL 成为该类宿主唯一读不了的东西（旧实现靠「写入 `img.src` 时改写」）。重新评估后放弃「落盘文件桥」，改为**对象 URL 直接返回 `data:` URI**：同步、无注册表、无生命周期，正好回到项目最初的设计表述（docs/01）。

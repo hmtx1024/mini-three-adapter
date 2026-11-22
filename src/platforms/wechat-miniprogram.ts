@@ -13,7 +13,7 @@ import {
   rectFromSelectorResult,
   watchWxVisibility,
 } from './wechat-common';
-import { resolveWx, type WxCanvas, type WxLike, type WxSelectorQuery, type WxSelectorQueryResult } from './wx-types';
+import { resolveWx, type WxCanvas, type WxImage, type WxLike, type WxSelectorQuery, type WxSelectorQueryResult } from './wx-types';
 
 export interface SelectorCtx {
   createSelectorQuery(): WxSelectorQuery;
@@ -29,6 +29,11 @@ export interface WeChatMiniProgramOptions {
   queryDelay?: number;
   capabilities?: Partial<Capabilities>;
   diagnostics?: Diagnostics;
+  /**
+   * Replace how raw host images are acquired (default `wx.createImage()` →
+   * `OffscreenCanvas.createImage()`). Same contract as `WeChatGameOptions`.
+   */
+  createImage?: () => WxImage;
 }
 
 function queryNode(
@@ -84,7 +89,7 @@ export async function createWeChatMiniProgramBinding(
     // default attributes before three.js asks for its own.
     probeContext: (type) => probeContext(wx, type),
   });
-  const imageFactory = createWechatImageFactory(wx, diagnostics);
+  const imageFactory = createWechatImageFactory(wx, diagnostics, { createImage: options.createImage });
   const raf = createRafPair(wx, rawCanvas);
   const now = createNow(wx);
   let lastRect = rectFromSelectorResult(result);

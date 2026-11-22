@@ -1,11 +1,15 @@
 /** Shared WeChat plumbing used by both mini game and mini program bindings. */
 import type { ContextType, Disposer, Rect, TouchLikeEvent } from '../types';
 import type { WxCanvas, WxLike, WxTouchEvent } from './wx-types';
-import { createImageFactory, type ImageFactory } from '../core/image';
+import { createImageFactory, type ImageFactory, type ImageFactoryOptions } from '../core/image';
 import type { Diagnostics } from '../core/diagnostics';
 
-export function createWechatImageFactory(wx: WxLike, diagnostics?: Diagnostics): ImageFactory {
-  return createImageFactory(wx, diagnostics);
+export function createWechatImageFactory(
+  wx: WxLike,
+  diagnostics?: Diagnostics,
+  options?: ImageFactoryOptions,
+): ImageFactory {
+  return createImageFactory(wx, diagnostics, options);
 }
 
 /** rAF comes from the global in mini games, from the canvas node in mini programs. */

@@ -14,7 +14,7 @@ import {
   watchWxTouch,
   watchWxVisibility,
 } from './wechat-common';
-import { resolveWx, type WxCanvas, type WxLike } from './wx-types';
+import { resolveWx, type WxCanvas, type WxImage, type WxLike } from './wx-types';
 
 export interface WeChatGameOptions {
   /** Inject a `wx` mock (tests / non-WeChat hosts). */
@@ -29,6 +29,14 @@ export interface WeChatGameOptions {
   diagnostics?: Diagnostics;
   /** Call wx.setPreferredFramesPerSecond(fps) when supported. */
   preferredFps?: number;
+  /**
+   * Replace how raw host images are acquired (default `wx.createImage()` →
+   * `OffscreenCanvas.createImage()`). The event bridge, `src` handling and
+   * fallbacks are applied in place to whatever this returns, so it must be the
+   * host's own image object (no wrappers / clones — ADR-0004). Escape hatch for
+   * hosts whose image creation semantics differ; errors are not swallowed.
+   */
+  createImage?: () => WxImage;
 }
 
 let cachedScreenCanvas: WxCanvas | null = null;
@@ -96,7 +104,7 @@ export function createWeChatGameBinding(options: WeChatGameOptions = {}): Platfo
     probeContext: (type) =>
       probeContext(wx, type, { allowCanvasFallback: true, reservedCanvases }),
   });
-  const imageFactory = createWechatImageFactory(wx, diagnostics);
+  const imageFactory = createWechatImageFactory(wx, diagnostics, { createImage: options.createImage });
   const raf = createRafPair(wx, rawCanvas);
   const now = createNow(wx);
 

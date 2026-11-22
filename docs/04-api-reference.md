@@ -43,6 +43,7 @@ interface WeChatGameOptions {
   capabilities?: Partial<Capabilities>;
   diagnostics?: Diagnostics;
   preferredFps?: number;             // wx.setPreferredFramesPerSecond
+  createImage?: () => WxImage;       // 替换原始取图（默认 wx.createImage → OffscreenCanvas.createImage）
 }
 type WeChatGameRuntimeOptions = WeChatGameOptions & RuntimeOptions;
 ```
@@ -59,6 +60,7 @@ interface WeChatMiniProgramOptions {
   queryDelay?: number;               // 等待布局的毫秒数
   capabilities?: Partial<Capabilities>;
   diagnostics?: Diagnostics;
+  createImage?: () => WxImage;       // 同 WeChatGameOptions
 }
 ```
 
@@ -174,7 +176,7 @@ function clearEarlyScopeReads(): void;
 | `*Shim` | `HTMLCanvasElementShim`、`HTMLImageElementShim`、`HTMLElementShim`、`OffscreenCanvasShim`、`ImageDataShim`、`WebGLRenderingContextShim`、`WebGL2RenderingContextShim`、`DOMRectShim` |
 | `patchCanvas(raw, options)` | 返回 `{ canvas, contexts, updateRect, element, disposers }`。`nativeEventTarget` 透传给 `patchElement`；无论哪种模式都接管 `getContext`（上下文缓存 + WebGL 归一化） |
 | `createOffscreenCanvas(wx, w?, h?, options?)` | 直接创建并补丁离屏画布 |
-| `createImageFactory(wx, diagnostics?)` | `{ Image, HTMLImageElement, ImageData, createImage, createImageData, createImageBitmap: undefined }`。工厂按「原生 `addEventListener` → `onload`/`onerror` 赋值 → `wx.getImageInfo` → 2s watchdog」四级兜底把宿主事件桥接成合成事件：`img.onload = fn` 与 `addEventListener('load', fn)` 都能收到通知，`complete` 在成功/失败后都为 `true`，`decode()` 据此 resolve/reject。宿主两种消费时序都覆盖：**赋值即存**（模拟器）与**事件触发时读属性**（真机）——`onload`/`onerror` 访问器在非派发期间永远返回可调用的桥接函数，只有 `dispatchEvent` 行内派发期间返回登记的用户回调，见 [ADR-0011](./adr/0011-host-callback-slot-bridging.md)。`addEventListener` 与回调槽位**并行接线**（真机的 `addEventListener` 可能是空壳），watchdog 超时 `path` 报组合值（如 `addEventListener+onload`）。`src` 按描述符分流：accessor 宿主安装拦截（`mini-three-blob:` → `data:`）；**数据属性宿主完全直通**、绝不 `defineProperty`，兜底由有界轮询（100ms × ≤120）触发，见 [ADR-0012](./adr/0012-host-data-property-boundary.md)。watchdog 对所有宿主无条件生效：`src` 后 2s 内没有真实事件时，`complete` 为真则派发 `load`，否则派发带 `reason` 的 `error` 并 `warnOnce('image-events-timeout', …, { path, src })`，不会无限 pending 也不会无告警 |
+| `createImageFactory(wx, diagnostics?, options?)` | `{ Image, HTMLImageElement, ImageData, createImage, createImageData, createImageBitmap: undefined }`。`options.createImage?: () => WxImage` 只替换**原始取图**（默认 `wx.createImage()` → `OffscreenCanvas.createImage()`），事件桥接、`src` 分流与兜底照常就地补丁——用于宿主取图语义不同的场景（ADR-0004 / ADR-0012）。工厂按「原生 `addEventListener` → `onload`/`onerror` 赋值 → `wx.getImageInfo` → 2s watchdog」四级兜底把宿主事件桥接成合成事件：`img.onload = fn` 与 `addEventListener('load', fn)` 都能收到通知，`complete` 在成功/失败后都为 `true`，`decode()` 据此 resolve/reject。宿主两种消费时序都覆盖：**赋值即存**（模拟器）与**事件触发时读属性**（真机）——`onload`/`onerror` 访问器在非派发期间永远返回可调用的桥接函数，只有 `dispatchEvent` 行内派发期间返回登记的用户回调，见 [ADR-0011](./adr/0011-host-callback-slot-bridging.md)。`addEventListener` 与回调槽位**并行接线**（真机的 `addEventListener` 可能是空壳），watchdog 超时 `path` 报组合值（如 `addEventListener+onload`）。`src` 按描述符分流：accessor 宿主安装拦截（对象 URL 已直返 `data:`，见 [ADR-0013](./adr/0013-object-url-data-uri.md)，拦截只用于兜底触发点）；**数据属性宿主完全直通**、绝不 `defineProperty`，兜底由有界轮询（100ms × ≤120）触发，见 [ADR-0012](./adr/0012-host-data-property-boundary.md)。watchdog 对所有宿主无条件生效：`src` 后 2s 内没有真实事件时，`complete` 为真则派发 `load`，否则派发带 `reason` 的 `error` 并 `warnOnce('image-events-timeout', …, { path, src })`，不会无限 pending 也不会无告警 |
 | `createDocument(options)` / `createScreen(w, h)` / `ShimDOMRect` | 伪 DOM 容器 |
 | `PointerBridge` | `dispatch(event, opts?)`、`dispatchMouse(event)`、`setRect`、`refreshRect`、`setPointerCapture`、`releasePointerCapture`、`activePointerCount`、`dispose`。构造选项 `createEvent(type, init)` 存在时派发**真实 DOM 事件**而不是 `MiniEvent`；`nativeEventTarget: true` 时不再向 `document` / `window` 转派（浏览器自己冒泡），见 [ADR-0010](./adr/0010-native-event-target-boundary.md) |
 | `createFrameScheduler(raf, caf, options)` | `request` / `cancel` / `loop(cb)` / `setFpsCap` / `fps` / `dispose` |

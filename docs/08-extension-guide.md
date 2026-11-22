@@ -29,6 +29,8 @@ export function createFooBinding(options: FooOptions): PlatformBinding {
     rawCanvas: host.canvas,
     capabilities: detectCapabilities(host.wxLike, 'browser'),
     imageFactory: createImageFactory(host.wxLike),
+    // 取图语义与宿主不同时：createImageFactory(host.wxLike, diagnostics, { createImage: () => host.createImage() })
+    // ——只替换原始取图，事件桥接 / src 分流 / 兜底照常就地补丁（ADR-0004）。
     getCanvasRect: () => host.rect(),
     createOffscreenCanvas: (w, h, type) => host.offscreen(w, h, type),
     watchTouch: (handler) => host.onTouch(handler),

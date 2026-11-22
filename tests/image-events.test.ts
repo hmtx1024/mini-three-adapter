@@ -2,8 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createImageFactory } from '../src/core/image';
 import { createDiagnostics } from '../src/core/diagnostics';
 import { MiniBlob, MiniURL } from '../src/polyfills/blob-url';
+import { createWeChatGameBinding, resetScreenCanvasCache } from '../src/platforms/wechat-game';
 import { createMockWx } from './helpers/mock-wx';
-import type { WxLike } from '../src/platforms/wx-types';
+import type { WxImage, WxLike } from '../src/platforms/wx-types';
 
 /** A host whose image object really implements addEventListener (no onload slot). */
 function hostWithNativeEventTarget(): {
@@ -668,5 +669,50 @@ describe('image native event bridge', () => {
     host.emit('load');
     expect(listener).toHaveBeenCalledTimes(1);
     expect(image.complete).toBe(true);
+  });
+
+  it('acquires raw images through the injected createImage option', () => {
+    const host = hostWithReadTimeCallbacks();
+    const wxCreateImage = vi.fn();
+    const injected = vi.fn(() => host.raw as unknown as WxImage);
+    const wx = { createImage: wxCreateImage } as unknown as WxLike;
+    const image = createImageFactory(wx, undefined, { createImage: injected }).createImage();
+    const listener = vi.fn();
+    image.addEventListener('load', listener);
+
+    image.src = 'textures/a.png';
+    host.emit('load');
+
+    expect(injected).toHaveBeenCalledTimes(1);
+    expect(wxCreateImage).not.toHaveBeenCalled();
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(image.complete).toBe(true);
+  });
+
+  it('threads the createImage option through the WeChat game binding', () => {
+    resetScreenCanvasCache();
+    const base = createMockWx();
+    const canvas = base.createCanvas!();
+    const host = hostWithReadTimeCallbacks();
+    const injected = vi.fn(() => host.raw as unknown as WxImage);
+    try {
+      const binding = createWeChatGameBinding({
+        wx: base,
+        canvas,
+        createImage: injected,
+        diagnostics: createDiagnostics('silent'),
+      });
+
+      const image = binding.imageFactory.createImage();
+      expect(injected).toHaveBeenCalledTimes(1);
+
+      const listener = vi.fn();
+      image.addEventListener('load', listener);
+      image.src = 'textures/a.png';
+      host.emit('load');
+      expect(listener).toHaveBeenCalledTimes(1);
+    } finally {
+      resetScreenCanvasCache();
+    }
   });
 });
