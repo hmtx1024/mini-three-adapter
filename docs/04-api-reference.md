@@ -224,7 +224,7 @@ interface PlatformBinding {
 | `atob` / `btoa` / `MiniTextEncoder` / `MiniTextDecoder` | 编码 |
 | `createFetch(wx)` / `MiniXMLHttpRequest` / `createXMLHttpRequestFactory(wx)` / `MiniAbortController` / `MiniAbortSignal` | 网络 |
 
-> 注意：对象 URL 采用 `mini-three-blob:` 前缀并解析为 `data:` URI，而不是浏览器 `blob:` ——因为微信 image loader 只认 `data:` / 本地路径。
+> 注意：`URL.createObjectURL` 直接返回 `data:` URI（同步、无注册表、`revokeObjectURL` 为 no-op），而不是浏览器 `blob:`——微信 image loader 原生可读 `data:`（真机 Android / 基础库 3.18.0 验证至 1.77 MB URI），见 [ADR-0013](./adr/0013-object-url-data-uri.md)。
 
 ---
 

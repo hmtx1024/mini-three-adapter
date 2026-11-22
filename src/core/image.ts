@@ -1,6 +1,5 @@
 /** Image / ImageData / HTMLImageElement shims built on wx.createImage. */
 import type { WxImage, WxLike } from '../platforms/wx-types';
-import { MiniURL } from '../polyfills/blob-url';
 import { MiniCustomEvent } from '../polyfills/event';
 import {
   HTMLImageElementShim,
@@ -47,10 +46,9 @@ function findDescriptor(target: object, key: string): PropertyDescriptor | undef
   return undefined;
 }
 
-function resolveSrc(src: string): string {
-  if (typeof src !== 'string') return src;
-  const resolved = MiniURL.resolveObjectURL(src);
-  return resolved ?? src;
+/** Keep diagnostic payloads short: a data: URI can be megabytes. */
+function describeSrc(src: string): string {
+  return src.startsWith('data:') && src.length > 96 ? `${src.slice(0, 64)}…(${src.length} chars)` : src;
 }
 
 /** Bound method lookup that never throws (host objects can be exotic). */
@@ -212,7 +210,7 @@ export function createImageFactory(wx: WxLike, diagnostics?: Diagnostics): Image
           enumerable: true,
           get: () => (srcDescriptor?.get ? srcDescriptor.get.call(raw) : currentSrc),
           set: (value: string) => {
-            const next = resolveSrc(String(value));
+            const next = String(value);
             currentSrc = next;
             writeNativeSrc(next);
             onSrcChange?.(next);
@@ -440,7 +438,7 @@ export function createImageFactory(wx: WxLike, diagnostics?: Diagnostics): Image
           `image-events-timeout: no load or error event within ${EVENT_WATCHDOG_MS} ms; ` +
             'the texture is reported as failed (package textures decode well inside 2s; ' +
             'slow network images need preloading, docs/06 §6.3.1)',
-          { path: eventPath, src: currentSrc },
+          { path: eventPath, src: describeSrc(currentSrc) },
         );
         forwardError({ type: 'error', reason: 'image-events-timeout', path: eventPath });
       }, EVENT_WATCHDOG_MS);
@@ -515,15 +513,6 @@ export function createImageFactory(wx: WxLike, diagnostics?: Diagnostics): Image
         }
         if (value) {
           currentSrc = value;
-          if (value.startsWith('mini-three-blob:')) {
-            diagnostics?.warnOnce(
-              'image-src-object-url',
-              'a mini-three-blob: object URL was assigned on a host whose src is a native data property; ' +
-                'the native loader cannot read object URLs, so the image will fail — write the blob to a file ' +
-                '(wx.env.USER_DATA_PATH) or decode it to a data: URI before assigning',
-              { src: value },
-            );
-          }
           startFallback(value);
           return;
         }

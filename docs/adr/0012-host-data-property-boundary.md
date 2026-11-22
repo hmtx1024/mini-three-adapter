@@ -18,7 +18,7 @@
 2. **禁止对宿主数据属性做 `defineProperty` 接管**——不只 `src`：任何「读取为数据属性、但写入/读取带原生语义」的宿主属性（`onprogress` / `ontimeupdate` / `onended` 等）同理。判断依据是描述符里的 `writable && !set`；「还原捕获的描述符」不是恢复原生的手段。
 3. **事件通道并行接线**：`addEventListener` 与 `onload`/`onerror` 槽位都挂，不 else-if。`finish` 幂等（终态一次）保证双通道只收敛一次；watchdog 超时 `path` 报组合值（如 `addEventListener+onload`），超时能指认全部已挂通道。
 4. **数据属性宿主的兜底由有界轮询驱动**：100ms 一次、120 次封顶（12s）侦测首次 `src` 写入后触发 `startFallback`（看门狗 / `wx.getImageInfo`）；终态（`finish`）或封顶自动停表。创建后从未赋值的图片不保留任何定时器。
-5. 数据属性宿主读不了 `mini-three-blob:` 对象 URL：轮询检测到时 `warnOnce('image-src-object-url', …, { src })`，原生失败经槽位派发为 `error`（不再静默）。`createObjectURL` 落盘 `wx.env.USER_DATA_PATH` 的文件桥列为后续待办，不在本决策内。
+5. （0.1.10 修订，[ADR-0013](./0013-object-url-data-uri.md)）对象 URL 改为 `createObjectURL` 直接返回 `data:` URI，数据属性宿主无需改写即可加载；本决策原先的 `image-src-object-url` 告警与文件桥待办一并取消。
 
 ## 理由
 
@@ -29,7 +29,7 @@
 ## 后果
 
 - 正面：真机（数据属性 `src` + 空壳 `addEventListener` + 读属性槽位）出图；两层根因各有独立的单元宿主形态钉住。
-- 负面：数据属性宿主上 `mini-three-blob:` 对象 URL 不再被改写为 `data:`——此前这类宿主**任何**图都加载不了，属于既有缺口显性化 + 指向性告警，非回归；GLTF 内嵌贴图在这类宿主上需要文件桥（待办）。
+- 负面（0.1.9 时）：数据属性宿主上的对象 URL 无法加载（既有缺口显性化 + `image-src-object-url` 告警）；0.1.10 起由 [ADR-0013](./0013-object-url-data-uri.md) 解决——对象 URL 直接是 `data:`，直通宿主同样可加载。
 - 负面：轮询为每张图片保留一个 100ms 定时器直至首次写入或 12s 封顶；three 的 `ImageLoader` 在创建当帧赋值，实际开销 1–2 tick。
 - 风险：若未来宿主在 `src` 上同时暴露 setter 描述符与 interceptor 语义，分流会走 accessor 分支——`writeNativeSrc` 用捕获的原生 setter 直写，仍然成立。
 

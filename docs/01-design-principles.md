@@ -61,7 +61,7 @@
 | 平台抽象 | 结构化接口 `PlatformBinding` | 以组合方式表达平台差异，新增平台只需实现一组字段与方法 |
 | 作用域 | `getActiveScope()` 惰性读取 | 支持运行时替换、多实例与测试注入 |
 | 网络 | `wx.request` 桥接 `fetch` / `XMLHttpRequest` | three 的 FileLoader 与 addons 可直接工作 |
-| 对象 URL | `mini-three-blob:` → `data:` URI | 宿主图片加载器可直接识别，无需拦截 `Image.src` |
+| 对象 URL | `createObjectURL` 直接返回 `data:` URI | 宿主图片加载器可直接识别，无需拦截 `Image.src`，也没有注册表或临时文件（真机 Android 3.18.0 验证 1.77 MB URI）；见 [ADR-0013](./adr/0013-object-url-data-uri.md) |
 | 构建工具集成 | Rollup 兼容插件核心 + Vite 薄封装 | 一套逻辑覆盖 Vite / Rollup，Node 依赖不进小游戏包 |
 
 ## 1.6 能力边界

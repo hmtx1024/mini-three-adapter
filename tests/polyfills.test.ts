@@ -52,10 +52,14 @@ describe('blob + url', () => {
     expect(Array.from(base64ToBytes(bytesToBase64(bytes)))).toEqual(Array.from(bytes));
   });
 
-  it('creates and revokes data-backed object URLs', () => {
+  it('returns a data: URI directly from createObjectURL (no registry)', () => {
     const blob = new MiniBlob(['hello'], { type: 'text/plain' });
     const url = MiniURL.createObjectURL(blob);
-    expect(MiniURL.resolveObjectURL(url)).toBe('data:text/plain;base64,aGVsbG8=');
+    // The host image loader reads the string itself — no registry handle, so
+    // the value must already be loadable.
+    expect(url).toBe('data:text/plain;base64,aGVsbG8=');
+    expect(MiniURL.resolveObjectURL(url)).toBeNull();
+    // revoke is a harmless no-op: there is nothing to free or invalidate.
     MiniURL.revokeObjectURL(url);
     expect(MiniURL.resolveObjectURL(url)).toBeNull();
   });

@@ -98,7 +98,7 @@ renderer.setAnimationLoop(() => {
 - 描述符不是唯一入口：有的宿主 `Object.getOwnPropertyDescriptor(img, 'onload')` 返回 `undefined`，但 `img.onload = fn` 仍然有效并能触发。
 - 「能赋值」也分两种**消费时序**：模拟器在赋值那一刻把回调存进宿主内部、事件时直接调用存值；真机在事件触发时读 `image.onload` 属性并调用读到的值。shim 的 `onload` / `onerror` getter 因此在非派发期间**永远返回桥接函数**，只有 `dispatchEvent` 行内派发期间返回登记的用户回调——前者保证真机读到的不是 `undefined`（0.1.7 真机空白根因），后者防止行内派发递归回桥接、用户回调双发（[ADR-0011](./adr/0011-host-callback-slot-bridging.md)）。
 - **`addEventListener` 与槽位并行接线**（0.1.9）：真机的 `addEventListener` 可能是只注册不派发的空壳，不能因为它「挂上了」就跳过 `onload`/`onerror`；`finish` 幂等，双通道也只收敛一次。
-- **`src` 同样要按形态分流**：accessor 宿主（模拟器 / H5）才安装拦截访问器；读取为**数据属性**的宿主（真机）写入经 interceptor 触发加载，`defineProperty` 接管——包括「还原捕获的描述符再写一次」——会把原生加载钩子换成死的普通属性，图片从未开始加载。数据属性宿主完全直通，兜底由有界轮询触发（[ADR-0012](./adr/0012-host-data-property-boundary.md)）。这类宿主读不了 `mini-three-blob:` 对象 URL，轮询检测到会 `warnOnce('image-src-object-url')`。
+- **`src` 同样要按形态分流**：accessor 宿主（模拟器 / H5）才安装拦截访问器；读取为**数据属性**的宿主（真机）写入经 interceptor 触发加载，`defineProperty` 接管——包括「还原捕获的描述符再写一次」——会把原生加载钩子换成死的普通属性，图片从未开始加载。数据属性宿主完全直通，兜底由有界轮询触发（[ADR-0012](./adr/0012-host-data-property-boundary.md)）。对象 URL 已改为 `createObjectURL` 直接返回 `data:`（0.1.10，[ADR-0013](./adr/0013-object-url-data-uri.md)），这类宿主无需任何拦截即可加载。
 - 「能赋值」还不等于「会触发」：这是 0.1.6 修的边界；不要用 `typeof img.onload === 'function'` 判断宿主是否健康。
 - `patchElement` 在**没有原生事件系统**的宿主上会覆盖 `addEventListener`（小程序 / 小游戏），任何「用原生事件」的方案都必须在它之前保存引用，否则拿到的是 shim。浏览器 canvas 例外：`nativeEventTarget: true` 时事件方法与 DOM 成员一律不动（[ADR-0010](./adr/0010-native-event-target-boundary.md)）。
 - `src` 同样可能只是可写数据属性。这种情况下 shim 访问器会吞掉写入，`image.ts` 会临时还原宿主属性写一次再装回访问器。

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createImageFactory } from '../src/core/image';
 import { createDiagnostics } from '../src/core/diagnostics';
+import { MiniBlob, MiniURL } from '../src/polyfills/blob-url';
 import { createMockWx } from './helpers/mock-wx';
 import type { WxLike } from '../src/platforms/wx-types';
 
@@ -645,28 +646,27 @@ describe('image native event bridge', () => {
     expect(image.complete).toBe(true);
   });
 
-  it('warns once when an object URL is assigned on a native data-property host', () => {
-    vi.useFakeTimers();
-    const messages: Array<{ message: string; payload?: unknown }> = [];
-    const diagnostics = createDiagnostics('warn', (_level, message, payload) => {
-      messages.push({ message, payload });
-    });
+  it('loads object URLs on a native data-property host because they are data: URIs', () => {
     const host = hostWithNativeDataSrc();
     const wx = { createImage: () => host.raw } as unknown as WxLike;
-    const image = createImageFactory(wx, diagnostics).createImage();
-    const onerror = vi.fn();
-    image.addEventListener('error', onerror);
+    const image = createImageFactory(wx).createImage();
+    const listener = vi.fn();
+    image.addEventListener('load', listener);
 
-    image.src = 'mini-three-blob:8f2a1c';
-    vi.advanceTimersByTime(100);
+    const uri = MiniURL.createObjectURL(
+      new MiniBlob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' }),
+    );
+    expect(uri.startsWith('data:image/png;base64,')).toBe(true);
 
-    const related = messages.filter((entry) => entry.message.includes('mini-three-blob'));
-    expect(related).toHaveLength(1);
-    expect(related[0]!.payload).toMatchObject({ src: 'mini-three-blob:8f2a1c' });
+    image.src = uri;
 
-    // The native loader cannot read the object URL; its failure surfaces
-    // through the slots the adapter wired.
-    host.emit('error', new Error('load fail'));
-    expect(onerror).toHaveBeenCalledTimes(1);
+    // Pass-through: the host receives the URI itself — no accessor, no
+    // rewrite, nothing for the adapter to resolve later.
+    expect(host.srcWrites()).toEqual([uri]);
+    expect(host.srcDefineCount()).toBe(0);
+
+    host.emit('load');
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(image.complete).toBe(true);
   });
 });

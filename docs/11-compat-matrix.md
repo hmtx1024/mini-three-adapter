@@ -59,7 +59,7 @@
 | `document.createElementNS` / `body` / `visibilityState` | `createDocument` | ✅ |
 | `HTMLCanvasElement` / `HTMLImageElement` / `HTMLElement` / `OffscreenCanvas` / `ImageData` / `DOMRect` 的 `instanceof` | `Symbol.hasInstance` 注册表 | ✅ |
 | `Event` / `EventTarget` / `CustomEvent` / `PointerEvent` / `MouseEvent` / `MessageEvent` / `ProgressEvent` | `polyfills/event.ts` | ✅ |
-| `Blob` / `URL.createObjectURL` / `URL.revokeObjectURL` | `mini-three-blob:` → `data:` | ✅ |
+| `Blob` / `URL.createObjectURL` / `URL.revokeObjectURL` | 直接返回 `data:` URI（无注册表，`revoke` 为 no-op） | ✅ 真机验证（Android / 基础库 3.18.0，1.77 MB URI） |
 | `URL` 构造 / 相对路径解析 | `MiniURL` | ✅ |
 | `TextEncoder` / `TextDecoder` / `atob` / `btoa` | `polyfills/text-encoding.ts` | ✅ |
 | `fetch` / `XMLHttpRequest` / `AbortController` | `wx.request` 桥接 | 🟡 单元级，真机网络待验证 |
@@ -94,7 +94,7 @@
 2. `createImageBitmap` 恒为 `undefined`，依赖该 API 的库需自带降级。
 3. 不提供完整 DOM；DOM 密集型 UI 库应走 WebView 方案。
 4. 插件默认只改写 `node_modules` 中的三方生态代码；应用代码里直接写 `window` 不会自动改写（可开 `includeUserCode`）。
-5. 对象 URL 是 `mini-three-blob:` + `data:`，不是浏览器 `blob:`；若有库硬编码 `blob:` 前缀判断，需要适配。
+5. 对象 URL 直接返回 `data:` URI，不是浏览器 `blob:`；若有库硬编码 `blob:` 前缀或期望可 `fetch` 的 URL，需要适配。
 6. Worker 分包、`.wasm.br`、iOS 高性能+ 需业务按 `mini-three-assets.json` 的 `gameJsonSuggestion` 自行配置，插件不直接改 `game.json`。
 7. 纹理请使用 PNG / JPEG。**WebP 在部分真机上无法解码**（`wx.createImage` 直接触发 `error`），这与适配层无关；`mini-three-adapter` 只会在 `wx.getImageInfo` 失败时给出指向格式的告警。
-8. 图片事件桥接依赖宿主投递事件。真正的 `load`/`error` 拿不到时（宿主三种入口全无，或接受了 `onload` 却永不调用），一律在 **2s** 内由 watchdog 给出终态：`complete` 为真则派发 `load`，否则派发 `error` 并 `warnOnce('image-events-timeout', …, { path, src })`。这意味着 >2s 才能解码完的网络大图会被判失败，包内纹理不受影响。宿主「触发时读属性」（ADR-0011）与「`src` 为数据属性」（ADR-0012）的形态由访问器恒回桥接与完全直通分别保证。数据属性宿主读不了 `mini-three-blob:` 对象 URL（GLTF 内嵌贴图需先落盘或转 `data:`，检测到时会 `warnOnce('image-src-object-url')`）。
+8. 图片事件桥接依赖宿主投递事件。真正的 `load`/`error` 拿不到时（宿主三种入口全无，或接受了 `onload` 却永不调用），一律在 **2s** 内由 watchdog 给出终态：`complete` 为真则派发 `load`，否则派发 `error` 并 `warnOnce('image-events-timeout', …, { path, src })`。这意味着 >2s 才能解码完的网络大图会被判失败，包内纹理不受影响。宿主「触发时读属性」（ADR-0011）与「`src` 为数据属性」（ADR-0012）的形态由访问器恒回桥接与完全直通分别保证。对象 URL 现为 `data:` URI，数据属性宿主可直接加载（0.1.10 真机验证）。

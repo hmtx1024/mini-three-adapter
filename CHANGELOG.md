@@ -2,6 +2,25 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.1.10] - 2026-11-22
+
+0.1.9 把「`src` 为数据属性」的真机宿主改为完全直通后，对象 URL 成为该类宿主唯一读不了的东西（旧实现靠「写入 `img.src` 时改写」）。重新评估后放弃「落盘文件桥」，改为**对象 URL 直接返回 `data:` URI**：同步、无注册表、无生命周期，正好回到项目最初的设计表述（docs/01）。
+
+### Changed
+
+- **`URL.createObjectURL` 直接返回 `data:` URI（不再产生 `mini-three-blob:` 句柄）**。真机探针（Android / 基础库 3.18.0）确认原生 image loader 可直接解码 `data:`：1×1 PNG、1080×1912 JPEG、197 KB 与 **1.77 MB** 的 768×768 PNG 均出图（≤ 174 ms）。`revokeObjectURL` 变为 no-op（API 兼容保留），`MiniURL.resolveObjectURL` 恒返回 `null`，注册表与 `objectUrls` 映射删除——同时消除「未被 revoke 的对象 URL 让 `MiniBlob` 常驻」的既有泄漏。新增 [ADR-0013](./docs/adr/0013-object-url-data-uri.md)。
+- `image.ts` 不再消费对象 URL：删除 `resolveSrc` 与对 `MiniURL` 的依赖；0.1.9 的 `image-src-object-url` 告警随之移除——该状态已不可能出现。
+- watchdog 告警 payload 的 `src` 对超长 `data:` URI 做截断描述（`data:image/png;base64,…(1772874 chars)`），避免兆字节级日志。
+
+### Tests
+
+- `tests/polyfills.test.ts`：`createObjectURL` 返回可加载的 `data:`、`resolveObjectURL` 恒 `null`、revoke no-op。
+- `tests/image-events.test.ts`：删除 `mini-three-blob:` 告警用例，新增「对象 URL 是 `data:`，数据属性宿主直通加载」；用例数保持 105。
+
+### Docs
+
+- `docs/01` / `docs/03` / `docs/04` / `docs/06` / `docs/11` 同步对象 URL 语义；ADR-0012 的对应待办标注为已由本版解决。
+
 ## [0.1.9] - 2026-11-21
 
 0.1.8 只修了第一层（`onload` 访问器遮蔽，ADR-0011）。真机探针（消消乐小游戏 2026-11-21 报告更新）确认还有独立的第二层：真机 `wx.createImage()` 的 `src` 读取为**可写数据属性**，写入经宿主 interceptor 触发原生加载，而适配层的 `src` 访问器（连同 0.1.5 的「还原描述符写一次」舞蹈）会把拦截器换成死的普通属性——图片**根本没有开始加载**（`width/height` 恒 0、`complete` 恒 false）；同时真机的 `addEventListener` 是**空壳**（注册后从不派发图片事件），旧代码 else-if 互斥导致 `onload` 槽位从未接线。两条通道一条被替换、一条没接上。

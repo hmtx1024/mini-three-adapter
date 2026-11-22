@@ -2,9 +2,12 @@
  * Blob + URL shims. WeChat mini games have neither. GLTFLoader, KTX2Loader,
  * EXRLoader and several addons call `URL.createObjectURL(new Blob([...]))`.
  *
- * Object URLs are resolved to `data:` URIs instead of `blob:` URIs. The WeChat
- * image loader understands `data:` directly, so no interception of `Image.src`
- * is needed and there is no global URL scheme registry to leak.
+ * An object URL is returned as its `data:` URI, synchronously. That is the
+ * whole contract a host image loader needs: the string it receives is already
+ * loadable, so nothing has to intercept `Image.src`, no registry has to be
+ * revoked, and hosts whose `src` is a native data property (ADR-0012) work
+ * exactly like hosts with a settable `src`. A real-device probe (Android,
+ * base library 3.18.0) decoded a 1.77 MB URI in ~170 ms.
  */
 
 export type BlobPart = string | ArrayBuffer | ArrayBufferView | MiniBlob;
@@ -133,8 +136,7 @@ class TextDecoderLike {
   }
 }
 
-let objectUrlSeed = 0;
-const objectUrls = new Map<string, MiniBlob>();
+/** @deprecated Object URLs are `data:` URIs now; no handle carries this prefix. */
 export const OBJECT_URL_PREFIX = 'mini-three-blob:';
 
 export interface URLSearchParamsLike {
@@ -214,23 +216,25 @@ export class MiniURL {
     const mini = blob instanceof MiniBlob
       ? blob
       : new MiniBlob([], { type: (blob as Blob).type });
-    const id = `${OBJECT_URL_PREFIX}${Date.now().toString(36)}-${(objectUrlSeed++).toString(36)}`;
-    objectUrls.set(id, mini);
-    return id;
+    return mini.dataURL();
   }
 
-  static revokeObjectURL(url: string): void {
-    objectUrls.delete(url);
+  static revokeObjectURL(_url: string): void {
+    // Kept for API compatibility: a data: URI holds no external resource, so
+    // there is nothing to release or invalidate.
   }
 
-  /** Resolve a `mini-three-blob:` URL back to its data URI. */
-  static resolveObjectURL(url: string): string | null {
-    const blob = objectUrls.get(url);
-    return blob ? blob.dataURL() : null;
+  /**
+   * Legacy lookup retained for API compatibility. Object URLs are no longer
+   * registry handles, so this always answers `null`.
+   */
+  static resolveObjectURL(_url: string): string | null {
+    return null;
   }
 
+  /** No-op, kept because `Runtime.dispose()` clears object URLs. */
   static clearObjectURLs(): void {
-    objectUrls.clear();
+    /* nothing registered */
   }
 }
 

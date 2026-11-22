@@ -18,7 +18,7 @@
 | 文件 | 职责 | 关键导出 | 改这里 | 会影响 / 测试 |
 | --- | --- | --- | --- | --- |
 | `src/polyfills/event.ts` | W3C 事件系统，`patchEventTarget` 把方法绑到内部载体但把 `this` / `event.target` / `currentTarget` 转发给宿主元素；`dispatchEvent` 只对 `MiniEvent` 写 `target`（真实 DOM 事件只读，ADR-0010） | `MiniEvent`、`MiniPointerEvent`、`MiniMouseEvent`、`MiniEventTarget`、`patchEventTarget`、`MiniDOMException` | 事件字段缺失（如 controls 读 `movementX`）、`onxxx` 内联处理器、监听器拿不到事件目标 | `pointer.ts`、`dom.ts`；`tests/polyfills.test.ts`、`tests/event-dispatch.test.ts` |
-| `src/polyfills/blob-url.ts` | Blob / URL / base64 / URL 相对解析 | `MiniBlob`、`MiniURL`、`bytesToBase64`、`resolveUrl` | `createObjectURL` 的目标格式、URL 解析边界 | `image.ts` 的 `src` 解析；`tests/polyfills.test.ts` |
+| `src/polyfills/blob-url.ts` | Blob / URL / base64 / URL 相对解析；`createObjectURL` 直接返回 `data:` URI（[ADR-0013](./adr/0013-object-url-data-uri.md)） | `MiniBlob`、`MiniURL`、`bytesToBase64`、`resolveUrl` | `createObjectURL` 的返回格式（`data:` 直返）、URL 解析边界 | `image.ts`（不再消费对象 URL）、`tests/polyfills.test.ts` |
 | `src/polyfills/text-encoding.ts` | `atob`/`btoa`/`TextEncoder`/`TextDecoder` | 同名 | 编码边界、BOM、utf-16 | `network.ts`、`blob-url.ts`；`tests/polyfills.test.ts` |
 | `src/polyfills/network.ts` | `fetch`、`XMLHttpRequest`、`AbortController` | `createFetch`、`createXMLHttpRequestFactory`、`MiniAbortController` | `wx.request` 返回结构差异、进度事件 | `runtime.ts` 的 scope 组装；`tests/polyfills.test.ts` |
 
